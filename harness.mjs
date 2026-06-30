@@ -329,6 +329,43 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(r.gold === 222, `gold should restore to 222 (got ${r.gold})`);
   });
 
+  // -- TEST 6: the Den (campaign hub) sits between battles ---------------------
+  await test('the Den: continuing and victory both land on it, and the next battle launches from it', () => {
+    clearTimers();
+    const sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 2; sv.exp = 0; sv.gold = 200; sv.stage = 4;
+    H.startBattle(4);
+    const B = H.B;
+    assert(B.mode === 'battle', 'battle should be active after startBattle');
+
+    // win the battle and let the victory modal's timer fire
+    B.e.hp = 0;
+    H.checkEnd();
+    tick(1100);
+
+    // "Return to Den" takes the player to the hub, not straight into the next stage
+    document.getElementById('btnNext').click();
+    assert(B.mode === 'den', `returning from victory should land in the Den (was "${B.mode}")`);
+    assert(document.getElementById('den').classList.contains('hidden') === false, 'Den screen should be visible');
+    assert(document.getElementById('title').classList.contains('hidden') === true, 'title screen should be hidden while in the Den');
+    assert(document.getElementById('hud').classList.contains('hidden') === true, 'battle HUD should be hidden while in the Den');
+
+    // the next battle launches from the Den, at the stage the save now points to
+    const stageAtDen = sv.stage;
+    document.getElementById('btnDenNext').click();
+    assert(B.mode === 'battle', 'Next Battle from the Den should start a battle');
+    assert(B.stage === stageAtDen, `battle launched from the Den should use the save's stage (expected ${stageAtDen}, got ${B.stage})`);
+    assert(document.getElementById('den').classList.contains('hidden') === true, 'Den screen should hide once battle starts');
+
+    // leaving battle and returning via "Continue" on the title also routes through the Den
+    clearTimers();
+    document.getElementById('btnMenu').click();   // confirm() is stubbed true in the harness
+    assert(B.mode === 'title', 'leaving the battle should return to the title');
+    document.getElementById('btnContinue').click();
+    assert(B.mode === 'den', 'Continue from the title should land in the Den, not straight into battle');
+    clearTimers();
+  });
+
   /* ---- report ---- */
   console.log('\nDragonfire Duel — test harness\n' + '-'.repeat(48));
   let failed = 0;
