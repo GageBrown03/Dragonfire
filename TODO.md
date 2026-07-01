@@ -30,7 +30,7 @@ and the definition of "done."
 
 ## Tier A — Career foundation (the spine; build these first)
 
-- [ ] **Campaign Hub — "the Den."** A persistent home base the player returns to between
+- [x] **Campaign Hub — "the Den."** A persistent home base the player returns to between
   battles, instead of bouncing straight from victory to the next fight.
   - *Intent:* one place that frames the career — your raised dragon, where it stands, and
     where it can go next — and from which the next battle is launched.

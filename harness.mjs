@@ -192,10 +192,12 @@ function loadGame() {
   const epilogue = `
     ;globalThis.__HARNESS__ = {
       B, get save(){ return save; },
-      SKILLS, DRAGONS, GEAR,
+      SKILLS, DRAGONS, GEAR, BIOME_ORDER, BIOMES,
       statsAt, expNeed, other,
       startBattle, startDuel, checkEnd, fire, aiSolve, Dragon,
-      persist, loadSave, wipeSave
+      persist, loadSave, wipeSave,
+      goDen, goTitle, refreshDen,
+      $: (id) => document.getElementById(id)
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -327,6 +329,57 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(r.level === 5, `level should restore to 5 (got ${r.level})`);
     assert(r.exp === 30, `exp should restore to 30 (got ${r.exp})`);
     assert(r.gold === 222, `gold should restore to 222 (got ${r.gold})`);
+  });
+
+  // -- TEST 6: the Den is reachable between battles, and launching a battle from it
+  //    keeps turn integrity intact and correctly routes back to the Den on victory --
+  await test('the Den: reachable between battles, turn integrity holds across Den -> battle -> Den', () => {
+    clearTimers();
+    const sv = H.save;
+    sv.dragonKey = 'volt'; sv.level = 2; sv.exp = 10; sv.gold = 50; sv.stage = 4;
+    H.goDen();
+    assert(H.B.mode === 'den', `goDen should switch B.mode to 'den' (got ${H.B.mode})`);
+    assert(!H.$('den').classList.contains('hidden'), 'the Den screen should be visible');
+    assert(H.$('title').classList.contains('hidden'), 'the title screen should be hidden while in the Den');
+    assert(H.$('denStage').textContent.includes('Stage 4'), `Den should display the current stage (got "${H.$('denStage').textContent}")`);
+    assert(H.$('denName').textContent.includes('Volt'), `Den should display the raised dragon (got "${H.$('denName').textContent}")`);
+
+    H.$('btnDenBattle').click();   // "Next Battle" — the Den's own entry point into combat
+    const B = H.B;
+    assert(B.mode === 'battle', 'clicking Next Battle from the Den should start the battle');
+    assert(H.$('den').classList.contains('hidden'), 'the Den should hide once battle starts');
+
+    // Drive a couple of real turns through the actual turn loop to confirm alternation
+    // still holds for a battle launched via the Den (not just via the title screen).
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    for (let i = 0; i < 400 && turnsSeen < 2 && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped near turn ${B.turnNo}`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo}`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(problems.length === 0, problems.join('; '));
+    assert(turnsSeen >= 1, `expected at least one real turn from a Den-launched battle, saw ${turnsSeen}`);
+
+    // Force a deterministic victory and confirm it routes back to the Den (not straight into another battle).
+    const stage0 = sv.stage;
+    if (B.state !== 'over') { B.e.hp = 0; H.checkEnd(); }
+    assert(B.state === 'over', 'battle should have ended');
+    tick(1200);                 // let victory()'s setTimeout show the modal
+    H.$('btnNext').click();     // "Return to Den"
+    assert(B.mode === 'den', `Return to Den should switch B.mode back to 'den' (got ${B.mode})`);
+    assert(!H.$('den').classList.contains('hidden'), 'the Den should be visible again after victory');
+    assert(H.$('denStage').textContent.includes('Stage ' + (stage0 + 1)), 'the Den should reflect the advanced stage after a win');
+    clearTimers();
   });
 
   /* ---- report ---- */
