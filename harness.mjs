@@ -116,12 +116,41 @@ class El {
   querySelectorAll() { return []; }
 }
 
+// Seed stub elements with the classes they carry in the real markup (e.g. modals start
+// with class="modal hidden"), so DOM-level queries like document.querySelectorAll('.modal')
+// — used by hideModals() — see the same elements a real browser would.
+function parseIdClasses(html) {
+  const map = new Map();
+  const tagRe = /<[a-zA-Z][^>]*>/g;
+  let m;
+  while ((m = tagRe.exec(html))) {
+    const idM = m[0].match(/\bid="([^"]+)"/);
+    const clsM = m[0].match(/\bclass="([^"]+)"/);
+    if (idM && clsM) map.set(idM[1], clsM[1].split(/\s+/).filter(Boolean));
+  }
+  return map;
+}
+let idClasses = new Map();
+
 const elById = new Map();
 const document = {
-  getElementById(id) { if (!elById.has(id)) elById.set(id, new El('div')); return elById.get(id); },
+  getElementById(id) {
+    if (!elById.has(id)) {
+      const el = new El('div');
+      (idClasses.get(id) || []).forEach((c) => el._cls.add(c));
+      elById.set(id, el);
+    }
+    return elById.get(id);
+  },
   createElement(tag) { return new El(tag); },
   querySelector() { return null; },
-  querySelectorAll() { return []; },
+  querySelectorAll(sel) {
+    if (typeof sel === 'string' && sel.startsWith('.')) {
+      const cls = sel.slice(1);
+      return [...elById.values()].filter((e) => e._cls.has(cls));
+    }
+    return [];
+  },
   addEventListener() {},
   removeEventListener() {},
 };
@@ -144,6 +173,7 @@ function loadGame() {
   const m = html.match(/<script>([\s\S]*?)<\/script>/);
   if (!m) throw new Error('could not find <script> block in dragonfire-duel.html');
   const gameSrc = m[1];
+  idClasses = parseIdClasses(html);
 
   const AudioContext = function () {
     return { state: 'running', currentTime: 0, sampleRate: 44100, resume() {}, destination: noop,
@@ -195,7 +225,7 @@ function loadGame() {
       SKILLS, DRAGONS, GEAR,
       statsAt, expNeed, other,
       startBattle, startDuel, checkEnd, fire, aiSolve, Dragon,
-      persist, loadSave, wipeSave
+      persist, loadSave, wipeSave, goDen
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -327,6 +357,39 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(r.level === 5, `level should restore to 5 (got ${r.level})`);
     assert(r.exp === 30, `exp should restore to 30 (got ${r.exp})`);
     assert(r.gold === 222, `gold should restore to 222 (got ${r.gold})`);
+  });
+
+  // -- TEST 6: the Den — victory routes home, and the next battle launches from it
+  await test('the Den: victory returns the player home, and the next battle launches from there', () => {
+    clearTimers();
+    const sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 2; sv.exp = 5; sv.gold = 60; sv.stage = 4;
+    H.startBattle(4);
+    const B = H.B;
+    B.e.hp = 0;
+    H.checkEnd();
+    tick(1200);   // flush the victory modal's setTimeout
+    assert(!document.getElementById('mVictory').classList.contains('hidden'), 'victory modal should be showing');
+
+    document.getElementById('btnNext').click();   // "To the Den ▶"
+    assert(B.mode === 'den', `clicking through victory should land in the Den (mode was "${B.mode}")`);
+    assert(document.getElementById('den').classList.contains('hidden') === false, 'Den screen should be visible');
+    assert(document.getElementById('title').classList.contains('hidden') === true, 'title screen should stay hidden behind the Den');
+    assert(document.getElementById('mVictory').classList.contains('hidden') === true, 'victory modal should be closed');
+    assert(String(document.getElementById('denGold').textContent) === String(sv.gold), 'Den should display the current gold');
+    assert(String(document.getElementById('denStageLine').textContent).includes('Stage ' + sv.stage), 'Den should point at the next stage');
+
+    document.getElementById('btnDenLaunch').click();   // "Launch Battle ▶"
+    assert(B.mode === 'battle', `launching from the Den should start the next battle (mode was "${B.mode}")`);
+    assert(B.stage === sv.stage, 'the launched battle should be the stage shown in the Den');
+    assert(document.getElementById('den').classList.contains('hidden') === true, 'Den should hide once battle starts');
+    clearTimers();
+
+    // duel mode must keep bypassing the Den entirely
+    H.startDuel('ember', 'frost');
+    assert(B.mode === 'battle', 'duel should launch straight into battle');
+    assert(document.getElementById('den').classList.contains('hidden') === true, 'Den should stay hidden for duel mode');
+    clearTimers();
   });
 
   /* ---- report ---- */

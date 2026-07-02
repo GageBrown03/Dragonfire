@@ -30,7 +30,7 @@ and the definition of "done."
 
 ## Tier A — Career foundation (the spine; build these first)
 
-- [ ] **Campaign Hub — "the Den."** A persistent home base the player returns to between
+- [x] **Campaign Hub — "the Den."** A persistent home base the player returns to between
   battles, instead of bouncing straight from victory to the next fight.
   - *Intent:* one place that frames the career — your raised dragon, where it stands, and
     where it can go next — and from which the next battle is launched.
@@ -41,6 +41,13 @@ and the definition of "done."
   - *Done when:* with a save present, the player reaches the Den and starts the next stage
     from it; duel still launches straight into its own flow; harness still shows a campaign
     battle completing and turn integrity intact across the Den → battle → Den loop.
+  - *Shipped:* new `#den` screen (`goDen`/`refreshDen`) shows the raised dragon (portrait,
+    level, EXP bar), the next stage + biome, and gold, with a "Launch Battle" button that
+    starts it. Title's "Begin the Hunt" and "Continue" now route here instead of straight
+    into `startBattle`; the victory modal's button ("To the Den ▶") does too. Duel mode is
+    untouched — `startDuel` never touches the Den. Rough edges for a future pass: no visuals
+    beyond text/portrait, and it doesn't yet show the full ladder (that's the next item) or
+    a career record (the item after).
 
 - [ ] **Legible stage ladder.** Make progress visible — replace the invisible stage
   counter with something the player can read and anticipate.
