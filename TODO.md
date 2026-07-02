@@ -106,6 +106,98 @@ and the definition of "done."
     accordingly; **this is combat-adjacent, so the bot-vs-bot turn-integrity sim must still
     pass against an alpha battle** — add an alpha battle to the harness's coverage.
 
+## Tier D — Haypi alignment (second wave)
+
+*Added 2026-07-01 from a study of how Haypi Dragon actually played — element-matched
+dragons, battle props, reward/treasure levels, per-level scores, stone synthesis. These
+deliberately do not overlap Tiers A–C; build them after, same rules (topmost unchecked,
+one per run).*
+
+- [ ] **Element affinity.** Make the six elements matter in combat, not just in the art.
+  - *Intent:* the player reads the enemy's element and it changes how the fight plays —
+    the roster's Fire/Ice/Thunder/Earth/Shadow/Toxin identity becomes mechanical, the way
+    Haypi dragons' elemental prowess mattered.
+  - *Weigh:* a simple wheel (each element strong vs one, weak vs one) vs more texture
+    (only signature skills carry the element, basic shots neutral)? Multiplier sizes that
+    are felt but not dominant. Where is the matchup telegraphed — before the battle, on
+    the enemy plate, as "Effective!" floats on hit? Does duel mode share the rule?
+    (CLAUDE.md says maintain duel, don't extend — a shared combat rule is defensible
+    either way, but decide deliberately and say so in the PR.)
+  - *Extend:* `DRAGONS` (each has `el`), `dealDamage`, `floatTxt`, the HUD plates,
+    `startBattle`.
+  - *Done when:* the matchup is readable in the UI and visibly changes damage in battle;
+    harness asserts advantaged > neutral > resisted resolved damage and the bot-vs-bot
+    sim stays green.
+
+- [ ] **Battle amplifiers (tactical items).** Haypi battles were fought with props, not
+  just heals — one-shot consumables that bend a single turn.
+  - *Intent:* shop-bought consumables that create in-battle decisions: e.g. calm the wind
+    for this shot, amplify this shot's damage, reveal the full arc while aiming this
+    turn. Like potions, using one does not end the turn.
+  - *Weigh:* which 2–3 amplifiers create the best decisions against the wind/aim systems?
+    One use per turn (the `usedItem` pattern) and a carry cap like potions? Is the AI
+    allowed to use them, or out of scope?
+  - *Extend:* `useItem` / `B.usedItem`, the `itemCtl` dock, the shop modal + `buyPotion`
+    pattern, new `save` fields with safe defaults, the aim/trajectory preview in `render`.
+  - *Done when:* at least two amplifiers are buyable, usable in battle with a visible
+    effect on that turn's shot, and persist in the save; harness asserts an amplifier's
+    effect applies and is consumed, and that using one does not end the turn (turn
+    integrity intact).
+
+- [ ] **Field loot — supply crates.** Haypi's ladder had reward levels and treasure;
+  give the battlefield something worth shooting besides the enemy.
+  - *Intent:* occasional destructible caches on the field that pay out (gold, a potion)
+    to whoever breaks them — a genuine alternative use for a turn.
+  - *Weigh:* how often they spawn (every battle vs some), placement that demands a
+    deliberate shot, what happens when the AI breaks one, payout scaling with stage.
+  - *Extend:* `makeObstacles` / `obstacles` / `damageObstacle` (a crate is nearly an
+    obstacle with a payout), `explode`, `victory`, `save.gold`.
+  - *Done when:* crates appear in campaign battles and breaking one visibly pays out
+    mid-battle and persists after the battle; harness asserts a broken crate credits its
+    reward and the sim still terminates with strict alternation.
+
+- [ ] **Hunt scoring.** Haypi graded every level — score each victory and pay for style.
+  - *Intent:* after a win, a legible grade (e.g. turns taken, HP kept) with a small
+    EXP/gold bonus for a clean hunt — pressure toward mastery, not just victory.
+  - *Weigh:* 2–3 inputs max; stars vs letter grade; bonus size; is best-grade-per-stage
+    worth persisting (feeds the Tier A career record / ladder if they exist by then)?
+  - *Extend:* `B.turnNo` (already counted), the `victory` modal, `save` (safe-default
+    fields), the career record.
+  - *Done when:* the victory screen shows the grade and the bonus it earned; harness
+    asserts the grade computed from a known battle state and that the bonus was added.
+
+- [ ] **Side hunts (the Eyrie valve).** Haypi let you re-run levels and train in the
+  Eyrie; the ladder needs a grind valve when a wall stage stops the run.
+  - *Intent:* an optional off-ladder battle at roughly the player's level for reduced
+    rewards, so a stuck player can strengthen instead of re-throwing at the same wall.
+  - *Weigh:* entry point (the Den if built, else title / defeat modal); how discounted
+    the rewards are so ladder stages stay the fastest path; enemy variety.
+  - *Extend:* `startBattle` (parameterize an off-ladder variant), `victory` (reduced
+    payout branch that must not advance `save.stage`), `mDefeat`, the Den.
+  - *Done when:* the player can launch a side hunt, win, and receive reduced rewards with
+    `save.stage` unchanged; harness asserts a side-hunt victory awards rewards without
+    advancing the stage.
+
+- [ ] **Magic stones & synthesis.** The most Haypi system of all: augmentation stones you
+  socket and combine. **Build only after Tier B gear/loadout has landed** so the two
+  progression tracks are designed to differ, not collide.
+  - *Intent:* a second, luck-flavored progression track — stones drop from victories
+    (better from alphas), socket into a small matrix on your dragon, and three of a kind
+    synthesize into the next tier.
+  - *Weigh:* how stones differ from gear so this isn't a parallel stat shop —
+    element-keyed bonuses feeding the affinity system? percent-based where gear is flat?
+    Matrix size (3 sockets?), drop rates, where the matrix UI lives (the Den).
+  - *Extend:* `victory` (drops), `save` (stone inventory + sockets, safe defaults), the
+    Den, the `Dragon` constructor's stat application, element affinity above.
+  - *Done when:* stones drop, socket, and synthesize, visibly changing battle output, and
+    persist across save/load; harness asserts 3→1 synthesis and a socketed stone's effect
+    on resolved stats.
+
+*Vision-level Haypi ideas deliberately **not** queued — they need the human's call:
+capturing beaten wild dragons into a stable (breaks the one-raised-dragon vision in
+CLAUDE.md), visual growth stages at level milestones (aesthetic-leaning), 2v2 team
+battles (scope). Decide, then queue.*
+
 ---
 
 *Standing concern, not a task:* difficulty / EXP / gold curve tuning is evaluated
