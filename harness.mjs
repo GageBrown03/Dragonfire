@@ -192,10 +192,10 @@ function loadGame() {
   const epilogue = `
     ;globalThis.__HARNESS__ = {
       B, get save(){ return save; },
-      SKILLS, DRAGONS, GEAR,
+      SKILLS, DRAGONS, GEAR, BIOME_ORDER, BIOMES,
       statsAt, expNeed, other,
       startBattle, startDuel, checkEnd, fire, aiSolve, Dragon,
-      persist, loadSave, wipeSave
+      persist, loadSave, wipeSave, goDen, goTitle
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -327,6 +327,64 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(r.level === 5, `level should restore to 5 (got ${r.level})`);
     assert(r.exp === 30, `exp should restore to 30 (got ${r.exp})`);
     assert(r.gold === 222, `gold should restore to 222 (got ${r.gold})`);
+  });
+
+  // -- TEST 6: the Den — victory routes there, it launches the next stage, duel bypasses it --
+  await test('the campaign hub (the Den): victory reaches it, it launches battles, turn integrity holds across Den -> battle -> Den', () => {
+    clearTimers();
+    const sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 3; sv.exp = 0; sv.gold = 100; sv.stage = 2;
+    H.startBattle(2);
+    const B = H.B;
+    const stage0 = sv.stage;
+    B.e.hp = 0;
+    H.checkEnd();
+    assert(B.state === 'over', 'battle ended when the enemy fell');
+
+    // simulate the victory modal's "To the Den" click
+    H.goDen();
+    assert(B.mode === 'den', `expected mode 'den' after victory, got '${B.mode}'`);
+    assert(!document.getElementById('den')._cls.has('hidden'), 'Den screen should be visible after victory');
+    assert(document.getElementById('hud')._cls.has('hidden'), 'battle HUD should be hidden in the Den');
+    assert(sv.stage === stage0 + 1, 'the stage shown in the Den should already reflect the win');
+
+    // launch the next battle from the Den (as clicking "Enter Battle" would)
+    H.startBattle(sv.stage);
+    assert(B.mode === 'battle', 'starting from the Den should enter battle mode');
+    assert(document.getElementById('den')._cls.has('hidden'), 'Den screen should hide once battle starts');
+
+    // drive a full bot-vs-bot battle to confirm turn integrity survives the Den round-trip
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve(B.active, foe, H.SKILLS.shot, false);
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo}`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo}`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `battle launched from the Den did not finish within ${BUDGET} frames`);
+    assert(turnsSeen >= 2, `expected turns after launching from the Den, saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+
+    // back to the Den again, closing the loop
+    H.goDen();
+    assert(B.mode === 'den', 'should return to the Den after a second battle');
+    clearTimers();
+
+    // duel mode must bypass the Den entirely
+    H.startDuel('frost', 'volt');
+    assert(H.B.mode === 'battle', 'duel should enter battle mode directly');
+    assert(document.getElementById('den')._cls.has('hidden'), 'Den screen must stay hidden for duel mode');
+    clearTimers();
   });
 
   /* ---- report ---- */
