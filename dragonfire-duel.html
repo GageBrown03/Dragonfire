@@ -148,6 +148,12 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 .meter .trk{flex:1;height:5px;background:#0a0f1d;border-radius:3px;overflow:hidden}
 .meter .vl{height:100%;border-radius:3px;background:linear-gradient(90deg,#6f86b6,#a9c2f0)}
 .card .blurb{font-size:10px;color:var(--mist);margin-top:7px;line-height:1.5;min-height:42px}
+.denTitle{font-family:var(--disp);font-weight:900;font-size:clamp(26px,5vw,40px);letter-spacing:.06em;
+  background:linear-gradient(180deg,#ffe2b0,var(--ember) 55%,var(--ember-deep));-webkit-background-clip:text;background-clip:text;color:transparent;
+  text-align:center}
+#denOrb{width:64px;height:64px;border-radius:50%;border:3px solid rgba(255,255,255,.35);
+  box-shadow:inset -6px -8px 14px rgba(0,0,0,.45),0 0 16px rgba(0,0,0,.4)}
+#denExpWrap{width:min(360px,90vw)}
 .bigBtn{font-size:18px;font-weight:900;padding:13px 34px;letter-spacing:.08em}
 .bigBtn.primary,.primary{border-color:#ffb573;background:linear-gradient(180deg,#ff9d52,var(--ember-deep));box-shadow:0 0 18px rgba(255,138,61,.4),0 4px 0 #6d2208}
 .rowBtns{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
@@ -273,6 +279,29 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     </div>
   </div>
 
+  <!-- the Den — campaign home base -->
+  <div class="screen hidden" id="den">
+    <div class="denTitle">THE DEN</div>
+    <div id="tag">Your dragon's home between hunts</div>
+    <div id="denOrb"></div>
+    <h3 id="denName" style="font-family:var(--disp);font-size:22px;letter-spacing:.05em">—</h3>
+    <div id="denEl" style="font-size:11px;color:var(--mist);letter-spacing:.2em;text-transform:uppercase;margin-top:-8px"></div>
+    <div id="denExpWrap"></div>
+    <div style="text-align:center">
+      <div id="denStageLine" style="font-family:var(--disp);font-size:19px;letter-spacing:.06em"></div>
+      <div id="denStageSub" style="font-size:11px;color:var(--mist)"></div>
+    </div>
+    <p id="denGold" style="font-size:13px"></p>
+    <div class="rowBtns">
+      <button class="bigBtn primary" id="btnDenNext" style="font-size:15px;padding:11px 26px">Next Battle ▶</button>
+    </div>
+    <div class="rowBtns">
+      <button class="subBtn" id="btnDenShop">Shop</button>
+      <button class="subBtn" id="btnDenSwitch">Change Dragon</button>
+      <button class="subBtn" id="btnDenReset">Reset save</button>
+    </div>
+  </div>
+
   <!-- modals -->
   <div class="modal hidden" id="mVictory"><div class="box">
     <h2 class="win">VICTORY</h2>
@@ -282,7 +311,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <p id="vLvl" style="color:var(--gold)"></p>
     <div class="rowBtns">
       <button id="btnShopV">Shop</button>
-      <button class="primary bigBtn" id="btnNext" style="font-size:15px;padding:11px 22px">Next Stage ▶</button>
+      <button class="primary bigBtn" id="btnNext" style="font-size:15px;padding:11px 22px">Return to Den ▶</button>
     </div>
   </div></div>
 
@@ -290,7 +319,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <h2 class="lose">DEFEATED</h2>
     <p>Your dragon limps home to recover. Experience and gold are kept.</p>
     <div class="rowBtns">
-      <button id="btnQuit">Title</button>
+      <button id="btnQuit">Return to Den</button>
       <button class="primary bigBtn" id="btnRetry" style="font-size:15px;padding:11px 22px">Retry Stage</button>
     </div>
   </div></div>
@@ -940,7 +969,7 @@ function setupField(biomeKey,stage){
   parts.length=0; floats.length=0;
 }
 function enterBattleUI(tagText){
-  $('hud').classList.remove('hidden'); $('title').classList.add('hidden'); $('btnMenu').classList.remove('hidden');
+  $('hud').classList.remove('hidden'); $('title').classList.add('hidden'); $('den').classList.add('hidden'); $('btnMenu').classList.remove('hidden');
   $('btnZoom').classList.remove('hidden'); $('btnZoom').textContent='🎯'; camOverview=true;
   autoFrame(); cam.z=cam.tz; camSnap(cam.tx,cam.ty);
   $('stageTag').textContent=tagText;
@@ -1477,10 +1506,15 @@ $('buyHp').addEventListener('click',()=>buyPotion('hp',150));
 $('buyMp').addEventListener('click',()=>buyPotion('mp',100));
 $('btnShopV').addEventListener('click',()=>{shopReturn='mVictory'; refreshShop(); showModal('mShop');});
 $('btnShopT').addEventListener('click',()=>{shopReturn='title'; refreshShop(); showModal('mShop');});
-$('btnShopClose').addEventListener('click',()=>{sfx.click(); shopReturn==='mVictory'?showModal('mVictory'):hideModals();});
-$('btnNext').addEventListener('click',()=>{sfx.click(); startBattle(save.stage);});
+$('btnShopClose').addEventListener('click',()=>{
+  sfx.click();
+  if(shopReturn==='mVictory')showModal('mVictory');
+  else if(shopReturn==='den')goDen();
+  else hideModals();
+});
+$('btnNext').addEventListener('click',()=>{sfx.click(); goDen();});
 $('btnRetry').addEventListener('click',()=>{sfx.click(); startBattle(B.stage);});
-$('btnQuit').addEventListener('click',()=>{sfx.click(); goTitle();});
+$('btnQuit').addEventListener('click',()=>{sfx.click(); goDen();});
 $('btnRematch').addEventListener('click',()=>{sfx.click(); startDuel(B.duelKeys[0],B.duelKeys[1]);});
 $('btnDuelQuit').addEventListener('click',()=>{sfx.click(); goTitle();});
 $('btnHelp').addEventListener('click',()=>{sfx.click(); showModal('mHelp');});
@@ -1488,15 +1522,42 @@ $('btnHelpClose').addEventListener('click',()=>{sfx.click(); hideModals();});
 $('btnSound').addEventListener('click',()=>{save.sound=!save.sound; persist(); $('btnSound').textContent=save.sound?'🔊':'🔇'; if(save.sound)sfx.click();});
 $('btnMenu').addEventListener('click',()=>{
   if(B.mode!=='battle')return;
-  if(confirm('Leave the battle? This stage\'s progress is lost.')){persist(); goTitle();}
+  if(confirm('Leave the battle? This stage\'s progress is lost.')){persist(); B.modeType==='campaign'?goDen():goTitle();}
 });
 function goTitle(){
   B.mode='title'; B.state='idle'; B.projs=[]; B.queue=[]; B.zones=[]; B.aiPlan=null; B.active=null;
   $('hud').classList.add('hidden'); $('btnMenu').classList.add('hidden');
   $('btnZoom').classList.add('hidden'); camOverview=false; cam.tz=1;
-  hideModals(); $('title').classList.remove('hidden');
+  hideModals(); $('den').classList.add('hidden'); $('title').classList.remove('hidden');
   refreshTitle();
 }
+function goDen(){
+  if(!save.dragonKey){ goTitle(); return; }
+  B.mode='den'; B.state='idle'; B.projs=[]; B.queue=[]; B.zones=[]; B.aiPlan=null; B.active=null;
+  $('hud').classList.add('hidden'); $('btnMenu').classList.add('hidden');
+  $('btnZoom').classList.add('hidden'); camOverview=false; cam.tz=1;
+  hideModals(); $('title').classList.add('hidden'); $('den').classList.remove('hidden');
+  refreshDen();
+}
+function refreshDen(){
+  const D=DRAGONS[save.dragonKey];
+  $('denOrb').style.background='radial-gradient(circle at 32% 28%,'+D.belly+','+D.col+' 55%,'+D.col2+')';
+  $('denName').textContent=D.name+' — Lv '+save.level;
+  $('denEl').textContent=D.el+' dragon';
+  const need=expNeed(save.level);
+  $('denExpWrap').innerHTML=meterRow('EXP',save.exp,need);
+  const biomeKey=BIOME_ORDER[(save.stage-1)%BIOME_ORDER.length], alpha=save.stage%5===0;
+  $('denStageLine').textContent='Stage '+save.stage+(alpha?' ★ Alpha':'');
+  $('denStageSub').textContent=BIOMES[biomeKey].name+(alpha?' — a boosted foe awaits':'');
+  $('denGold').innerHTML='Gold: <span class="gold">'+save.gold+'g</span> &nbsp;·&nbsp; 🧪'+save.potions.hp+' &nbsp;🔮'+save.potions.mp;
+}
+$('btnDenNext').addEventListener('click',()=>{sfx.click(); startBattle(save.stage);});
+$('btnDenShop').addEventListener('click',()=>{sfx.click(); shopReturn='den'; refreshShop(); showModal('mShop');});
+$('btnDenSwitch').addEventListener('click',()=>{sfx.click(); goTitle();});
+$('btnDenReset').addEventListener('click',async()=>{
+  if(!confirm('Erase the entire save?'))return;
+  await wipeSave(); pickedKey=null; goTitle(); announce('Save erased.');
+});
 
 /* ---------- title & dragon select ---------- */
 let titleMode='campaign', pickedKey=null, duelPicks=[null,null];
@@ -1576,7 +1637,7 @@ $('btnStart').addEventListener('click',()=>{
   save.dragonKey=pickedKey; persist();
   startBattle(save.stage);
 });
-$('btnContinue').addEventListener('click',()=>{sfx.click(); startBattle(save.stage);});
+$('btnContinue').addEventListener('click',()=>{sfx.click(); goDen();});
 $('btnReset').addEventListener('click',async()=>{
   if(!confirm('Erase the entire save?'))return;
   await wipeSave(); pickedKey=null; refreshTitle(); announce('Save erased.');

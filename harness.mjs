@@ -195,7 +195,8 @@ function loadGame() {
       SKILLS, DRAGONS, GEAR,
       statsAt, expNeed, other,
       startBattle, startDuel, checkEnd, fire, aiSolve, Dragon,
-      persist, loadSave, wipeSave
+      persist, loadSave, wipeSave,
+      goTitle, goDen, refreshDen
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -278,6 +279,38 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(sv.gold > gold0, `gold should be awarded (was ${gold0}, now ${sv.gold})`);
     assert(sv.stage === stage0 + 1, `stage should advance (was ${stage0}, now ${sv.stage})`);
     assert(sv.exp !== exp0 || sv.level > lvl0, 'EXP should be awarded (or consumed by a level-up)');
+    clearTimers();
+  });
+
+  // -- TEST 2b: the Den — victory returns to the Den, Next Battle launches next stage --
+  await test('Den -> battle -> Den loop: victory returns to the Den, matches save.stage, and launches the next stage', () => {
+    clearTimers();
+    const sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 2; sv.exp = 0; sv.gold = 50; sv.stage = 4;
+
+    H.goDen();
+    assert(H.B.mode === 'den', `goDen() should set mode to "den" (got "${H.B.mode}")`);
+    assert(document.getElementById('den').classList.contains('hidden') === false, 'Den screen should be visible after goDen()');
+    assert(document.getElementById('title').classList.contains('hidden') === true, 'title screen should be hidden while in the Den');
+    assert(document.getElementById('denStageLine').textContent.indexOf('Stage ' + sv.stage) === 0,
+      `Den should display the current stage (got "${document.getElementById('denStageLine').textContent}")`);
+
+    document.getElementById('btnDenNext').click();   // "Next Battle" launches startBattle(save.stage)
+    const B = H.B;
+    assert(B.mode === 'battle', 'clicking Next Battle from the Den should start a battle');
+    assert(B.stage === 4, `battle should launch on the Den's displayed stage (got ${B.stage})`);
+    assert(document.getElementById('den').classList.contains('hidden') === true, 'Den screen should hide once battle starts');
+
+    const stage0 = sv.stage;
+    B.e.hp = 0;
+    H.checkEnd();                                    // enemy falls -> victory()
+    assert(B.state === 'over', 'battle should end when the enemy falls');
+    assert(sv.stage === stage0 + 1, 'victory should still advance save.stage as before');
+
+    document.getElementById('btnNext').click();       // victory modal's "Return to Den"
+    assert(H.B.mode === 'den', `"Return to Den" should send the player back to the Den (got mode "${H.B.mode}")`);
+    assert(document.getElementById('denStageLine').textContent.indexOf('Stage ' + sv.stage) === 0,
+      'Den should reflect the newly-advanced stage after a win');
     clearTimers();
   });
 

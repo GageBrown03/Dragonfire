@@ -30,8 +30,27 @@ and the definition of "done."
 
 ## Tier A — Career foundation (the spine; build these first)
 
-- [ ] **Campaign Hub — "the Den."** A persistent home base the player returns to between
+- [x] **Campaign Hub — "the Den."** A persistent home base the player returns to between
   battles, instead of bouncing straight from victory to the next fight.
+  - *Shipped:* a new full-screen `#den` hub (mirrors the `title` screen's structure/CSS).
+    It shows the raised dragon's portrait/name/level, an EXP bar, the current stage number
+    + biome (with an alpha callout), gold, and potion counts, plus buttons: **Next Battle**
+    (launches `startBattle(save.stage)`), **Shop**, **Change Dragon** (back to the title
+    dragon-select), and **Reset save**. `goDen()`/`refreshDen()` sit next to `goTitle()` and
+    follow the same show/hide pattern. Wiring: the title's **Continue** button now opens the
+    Den instead of jumping straight into a battle; the victory modal's button (renamed
+    "Return to Den ▶") and the defeat modal's button (renamed "Return to Den") both route
+    through `goDen()` instead of restarting/quitting directly; mid-battle **Menu → Leave**
+    now returns to the Den for campaign (still goes to the title for duel, which is
+    untouched). Duel mode's flow (`startDuel`, `duelEnd`, rematch/quit) was not touched.
+  - *Verified:* `node harness.mjs` (new test: "Den -> battle -> Den loop..." drives
+    `goDen()` → clicks `#btnDenNext` → forces a win → clicks the victory modal's button →
+    asserts the Den is shown again with the advanced stage) plus a manual Playwright
+    pass in a real Chromium: dragon select → battle → Menu/Leave → Den → Change Dragon →
+    title → Continue → Den (correct portrait/stage/gold) → Next Battle → battle HUD.
+  - *Uncertain:* the EXP bar is bare (no numeric "12/50" readout) — kept intentionally
+    minimal; a future pass could add exact numbers or a "career record" panel (next
+    TODO item) alongside it.
   - *Intent:* one place that frames the career — your raised dragon, where it stands, and
     where it can go next — and from which the next battle is launched.
   - *Weigh:* what does a player most want to see and do between fights? How does the Den
