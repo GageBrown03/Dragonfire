@@ -195,7 +195,7 @@ function loadGame() {
       SKILLS, DRAGONS, GEAR,
       statsAt, expNeed, other,
       startBattle, startDuel, checkEnd, fire, aiSolve, Dragon,
-      persist, loadSave, wipeSave
+      persist, loadSave, wipeSave, ladderWindow, refreshDen, BIOME_ORDER
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -363,6 +363,37 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(B.mode === 'title', 'leaving the battle should return to the title');
     document.getElementById('btnContinue').click();
     assert(B.mode === 'den', 'Continue from the title should land in the Den, not straight into battle');
+    clearTimers();
+  });
+
+  // -- TEST 7: legible stage ladder ---------------------------------------------
+  await test('Den stage ladder reads consistently with save.stage (window, states, biomes)', () => {
+    clearTimers();
+    const sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 3; sv.exp = 0; sv.gold = 50; sv.stage = 6;
+
+    const win = H.ladderWindow(sv.stage);
+    const cur = win.find((n) => n.state === 'current');
+    assert(cur && cur.n === sv.stage, `the current node should be stage ${sv.stage} (got ${cur && cur.n})`);
+    assert(win.filter((n) => n.n < sv.stage).every((n) => n.state === 'cleared'), 'every node before the current stage should read as cleared');
+    assert(win.filter((n) => n.n > sv.stage).every((n) => n.state === 'future'), 'every node after the current stage should read as future');
+    assert(win.every((n) => n.alpha === (n.n % 5 === 0)), 'alpha flag should mark every 5th stage, matching the startBattle alpha rule');
+    assert(win.every((n) => n.biomeKey === H.BIOME_ORDER[(n.n - 1) % H.BIOME_ORDER.length]), 'each node\'s biome should follow the same cycle startBattle uses');
+
+    // the Den's rendered ladder should agree with the save it was built from
+    H.refreshDen();
+    const track = document.getElementById('denLadder');
+    assert(track.children.length === win.length, `rendered ladder should have ${win.length} nodes (got ${track.children.length})`);
+    const curEl = track.children.find((c) => c.className.split(' ').includes('current'));
+    assert(curEl, 'rendered ladder should have exactly one node marked current');
+    assert(curEl.title.startsWith('Stage ' + sv.stage + ' '), `current node's title should reference stage ${sv.stage} (got "${curEl.title}")`);
+
+    // after a win advances save.stage, the same window/render machinery should track the new stage
+    H.startBattle(sv.stage);
+    H.B.e.hp = 0; H.checkEnd(); tick(1100);
+    assert(sv.stage === 7, `stage should have advanced to 7 (got ${sv.stage})`);
+    const win2 = H.ladderWindow(sv.stage);
+    assert(win2.find((n) => n.state === 'current').n === 7, 'ladder window should track the new stage after victory');
     clearTimers();
   });
 

@@ -152,6 +152,19 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 .bigBtn.primary,.primary{border-color:#ffb573;background:linear-gradient(180deg,#ff9d52,var(--ember-deep));box-shadow:0 0 18px rgba(255,138,61,.4),0 4px 0 #6d2208}
 .rowBtns{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
 .subBtn{font-size:12px;padding:8px 16px;color:var(--mist)}
+.ladder{display:flex;gap:9px;overflow-x:auto;max-width:min(400px,88vw);padding:9px 5px 6px;scroll-behavior:smooth}
+.ladderNode{flex:0 0 auto;width:32px;height:32px;border-radius:50%;border:2px solid var(--line);
+  background:var(--panel);display:flex;align-items:center;justify-content:center;position:relative}
+.ladderNode .n{font-size:11px;font-weight:800;color:var(--mist)}
+.ladderNode .biomeDot{position:absolute;bottom:-3px;left:50%;transform:translateX(-50%);
+  width:7px;height:7px;border-radius:50%;border:1px solid #0007}
+.ladderNode .star{position:absolute;top:-9px;right:-6px;font-size:11px}
+.ladderNode.cleared{opacity:.4}
+.ladderNode.cleared .n{visibility:hidden}
+.ladderNode.cleared::after{content:'✓';position:absolute;color:var(--hp);font-size:15px;font-weight:900}
+.ladderNode.current{border-color:var(--gold);box-shadow:0 0 10px rgba(255,210,63,.6)}
+.ladderNode.current .n{color:var(--bone)}
+.ladderNode.alpha{border-width:3px}
 
 .modal{position:absolute;inset:0;z-index:35;background:rgba(4,7,14,.72);display:flex;align-items:center;justify-content:center;padding:16px}
 .box{background:linear-gradient(180deg,#18223c,#0d1426);border:2px solid var(--line-hi);border-radius:18px;padding:22px 24px;
@@ -284,6 +297,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
       <div class="meter"><span class="lbl">EXP</span><div class="trk"><div class="vl" id="denExpFill" style="width:0%"></div></div></div>
     </div>
     <div id="denStage" style="font-size:13.5px;color:var(--mist);letter-spacing:.05em;text-align:center"></div>
+    <div id="denLadder" class="ladder"></div>
     <div id="denGold" style="font-size:13.5px;color:var(--gold)"></div>
     <div class="rowBtns">
       <button class="bigBtn primary" id="btnDenNext" style="font-size:16px;padding:12px 30px">Next Battle ▶</button>
@@ -1524,6 +1538,27 @@ function goTitle(){
 }
 
 /* ---------- campaign hub: the Den ---------- */
+// Pure: the stretch of the ladder around `stage` worth showing (a few cleared behind, several ahead).
+function ladderWindow(stage,back=3,fwd=8){
+  const lo=Math.max(1,stage-back), hi=stage+fwd, out=[];
+  for(let n=lo;n<=hi;n++){
+    const biomeKey=BIOME_ORDER[(n-1)%BIOME_ORDER.length];
+    out.push({n, biomeKey, biomeName:BIOMES[biomeKey].name, alpha:n%5===0,
+      state:n<stage?'cleared':(n===stage?'current':'future')});
+  }
+  return out;
+}
+function buildLadder(){
+  const wrap=$('denLadder'); wrap.innerHTML='';
+  ladderWindow(save.stage).forEach(node=>{
+    const el=document.createElement('div');
+    el.className='ladderNode '+node.state+(node.alpha?' alpha':'');
+    el.title='Stage '+node.n+' · '+node.biomeName+(node.alpha?' · Alpha boss':'');
+    el.innerHTML='<span class="n">'+node.n+'</span><span class="biomeDot" style="background:'+
+      BIOMES[node.biomeKey].cap+'"></span>'+(node.alpha?'<span class="star">★</span>':'');
+    wrap.appendChild(el);
+  });
+}
 function refreshDen(){
   if(!save.dragonKey)return;
   const D=DRAGONS[save.dragonKey];
@@ -1534,6 +1569,7 @@ function refreshDen(){
   $('denExpFill').style.width=Math.round(clamp(save.exp/need,0,1)*100)+'%';
   const biomeKey=BIOME_ORDER[(save.stage-1)%BIOME_ORDER.length];
   $('denStage').textContent='Stage '+save.stage+' · '+BIOMES[biomeKey].name+(save.stage%5===0?' ★ Alpha ahead':'');
+  buildLadder();
   $('denGold').textContent=save.gold+'g';
 }
 function goDen(){
