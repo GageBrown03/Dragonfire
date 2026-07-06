@@ -42,7 +42,7 @@ and the definition of "done."
     from it; duel still launches straight into its own flow; harness still shows a campaign
     battle completing and turn integrity intact across the Den → battle → Den loop.
 
-- [ ] **Legible stage ladder.** Make progress visible — replace the invisible stage
+- [x] **Legible stage ladder.** Make progress visible — replace the invisible stage
   counter with something the player can read and anticipate.
   - *Intent:* the player can see where they are on the ladder, what they've cleared, and
     what's coming (including that alphas punctuate it).
