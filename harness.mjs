@@ -195,7 +195,7 @@ function loadGame() {
       SKILLS, DRAGONS, GEAR,
       statsAt, expNeed, other,
       startBattle, startDuel, checkEnd, fire, aiSolve, Dragon,
-      persist, loadSave, wipeSave, ladderWindow, refreshDen, BIOME_ORDER
+      persist, loadSave, wipeSave, ladderWindow, refreshDen, BIOME_ORDER, blankRecord
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -394,6 +394,40 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(sv.stage === 7, `stage should have advanced to 7 (got ${sv.stage})`);
     const win2 = H.ladderWindow(sv.stage);
     assert(win2.find((n) => n.state === 'current').n === 7, 'ladder window should track the new stage after victory');
+    clearTimers();
+  });
+
+  // -- TEST 8: career record tracks battles and survives save/load ------------
+  await test('career record tracks wins/losses/alphas and persists across save then load', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+    sv.dragonKey = 'frost'; sv.level = 4; sv.stage = 5;   // stage 5 => alpha
+    H.startBattle(5);
+    let B = H.B;
+    assert(B.e.alpha, 'stage 5 should be an alpha battle');
+    const wins0 = sv.record.wins, alphaWins0 = sv.record.alphaWins, lifeGold0 = sv.record.lifeGold;
+    B.e.hp = 0;
+    H.checkEnd();
+    assert(sv.record.wins === wins0 + 1, `wins should increment (was ${wins0}, now ${sv.record.wins})`);
+    assert(sv.record.alphaWins === alphaWins0 + 1, `alpha win should be tallied (was ${alphaWins0}, now ${sv.record.alphaWins})`);
+    assert(sv.record.lifeGold > lifeGold0, 'lifetime gold earned should grow');
+    assert(sv.record.bestStage >= 5, `best stage should track the stage just cleared (got ${sv.record.bestStage})`);
+    tick(1100);
+
+    clearTimers();
+    H.startBattle(sv.stage);
+    B = H.B;
+    const losses0 = sv.record.losses;
+    B.p.hp = 0;
+    H.checkEnd();
+    assert(sv.record.losses === losses0 + 1, `losses should increment on defeat (was ${losses0}, now ${sv.record.losses})`);
+
+    const snapshot = JSON.parse(JSON.stringify(sv.record));
+    H.persist();
+    sv.record = H.blankRecord ? H.blankRecord() : { wins: 0, losses: 0, alphaWins: 0, bestStage: 1, lifeGold: 0, lifeExp: 0 };
+    await H.loadSave();
+    assert(JSON.stringify(sv.record) === JSON.stringify(snapshot), 'career record should survive a save/load round trip');
     clearTimers();
   });
 

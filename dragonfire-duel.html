@@ -165,6 +165,9 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 .ladderNode.current{border-color:var(--gold);box-shadow:0 0 10px rgba(255,210,63,.6)}
 .ladderNode.current .n{color:var(--bone)}
 .ladderNode.alpha{border-width:3px}
+.recordRow{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;max-width:min(400px,88vw);
+  font-size:11px;color:var(--mist);letter-spacing:.02em}
+.recordRow b{color:var(--bone)}
 
 .modal{position:absolute;inset:0;z-index:35;background:rgba(4,7,14,.72);display:flex;align-items:center;justify-content:center;padding:16px}
 .box{background:linear-gradient(180deg,#18223c,#0d1426);border:2px solid var(--line-hi);border-radius:18px;padding:22px 24px;
@@ -299,6 +302,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <div id="denStage" style="font-size:13.5px;color:var(--mist);letter-spacing:.05em;text-align:center"></div>
     <div id="denLadder" class="ladder"></div>
     <div id="denGold" style="font-size:13.5px;color:var(--gold)"></div>
+    <div id="denRecord" class="recordRow"></div>
     <div class="rowBtns">
       <button class="bigBtn primary" id="btnDenNext" style="font-size:16px;padding:12px 30px">Next Battle ▶</button>
     </div>
@@ -482,13 +486,15 @@ const BIOMES={
 const BIOME_ORDER=['meadow','cinder','tundra'];
 
 /* ---------- persistent save ---------- */
-let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},gear:{fang:0,scale:0,charm:0},sound:true};
+function blankRecord(){ return {wins:0,losses:0,alphaWins:0,bestStage:1,lifeGold:0,lifeExp:0}; }
+let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},gear:{fang:0,scale:0,charm:0},sound:true,record:blankRecord()};
 const SAVE_KEY='dragonfire-duel-save';
 let storageOK=false;
 async function loadSave(){
   try{const r=await window.storage.get(SAVE_KEY);
     if(r&&r.value){const d=JSON.parse(r.value); if(d&&d.v===1){save=Object.assign(save,d);
-      if(!save.gear)save.gear={fang:0,scale:0,charm:0};}}
+      if(!save.gear)save.gear={fang:0,scale:0,charm:0};
+      if(!save.record)save.record=blankRecord();}}
     storageOK=true;
   }catch(e){ storageOK=(typeof window.storage!=='undefined'); }
 }
@@ -497,7 +503,7 @@ function persist(){
   try{ window.storage.set(SAVE_KEY,JSON.stringify(save)).catch(()=>{}); }catch(e){}
 }
 async function wipeSave(){
-  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},gear:{fang:0,scale:0,charm:0},sound:save.sound};
+  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},gear:{fang:0,scale:0,charm:0},sound:save.sound,record:blankRecord()};
   try{ await window.storage.delete(SAVE_KEY);}catch(e){}
 }
 
@@ -1218,6 +1224,9 @@ function victory(){
   const alpha=B.e.alpha;
   const exp=35+B.stage*14+(alpha?30:0), gold=50+B.stage*22+(alpha?60:0);
   save.exp+=exp; save.gold+=gold;
+  save.record.wins++; save.record.lifeExp+=exp; save.record.lifeGold+=gold;
+  if(alpha)save.record.alphaWins++;
+  save.record.bestStage=Math.max(save.record.bestStage,B.stage);
   let ups=0; while(save.exp>=expNeed(save.level)){save.exp-=expNeed(save.level); save.level++; ups++;}
   save.stage=B.stage+1; persist();
   $('vExp').textContent='+'+exp+' EXP'; $('vGold').textContent='+'+gold+' Gold';
@@ -1228,7 +1237,7 @@ function victory(){
   setTimeout(()=>showModal('mVictory'),1000);
 }
 function defeat(){
-  B.state='over'; deathFX(B.p); sfx.lose(); persist();
+  B.state='over'; deathFX(B.p); sfx.lose(); save.record.losses++; persist();
   setTimeout(()=>showModal('mDefeat'),1000);
 }
 function duelEnd(w,l){
@@ -1571,6 +1580,13 @@ function refreshDen(){
   $('denStage').textContent='Stage '+save.stage+' · '+BIOMES[biomeKey].name+(save.stage%5===0?' ★ Alpha ahead':'');
   buildLadder();
   $('denGold').textContent=save.gold+'g';
+  const rec=save.record;
+  $('denRecord').innerHTML=
+    '<span><b>'+rec.wins+'</b> wins</span>'+
+    '<span><b>'+rec.losses+'</b> losses</span>'+
+    '<span><b>'+rec.alphaWins+'</b> alphas felled</span>'+
+    '<span>best stage <b>'+rec.bestStage+'</b></span>'+
+    '<span><b>'+rec.lifeGold+'g</b> earned</span>';
 }
 function goDen(){
   if(!save.dragonKey){ goTitle(); return; }

@@ -54,7 +54,7 @@ and the definition of "done."
     the next battle from it; the value shown agrees with `save.stage`; add a check that the
     displayed/derived stage state stays consistent with `save` after a win.
 
-- [ ] **Career record.** Give the one raised dragon a story the player can look back on.
+- [x] **Career record.** Give the one raised dragon a story the player can look back on.
   - *Intent:* surface a sense of accumulated career — what this dragon has done over its
     run — so progress feels earned, not just a number.
   - *Weigh:* which few facts actually feel rewarding to track? What's worth persisting vs.
