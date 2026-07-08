@@ -66,7 +66,7 @@ and the definition of "done."
 
 ## Tier B — Combat & progression depth (raising the one dragon)
 
-- [ ] **Skill leveling / upgrades.** Let the player invest in their dragon's signature
+- [x] **Skill leveling / upgrades.** Let the player invest in their dragon's signature
   skills over the career, not just ride flat skill values.
   - *Intent:* a meaningful "raise your dragon" lever — choosing to strengthen skills and
     feeling the difference in battle.
@@ -74,6 +74,14 @@ and the definition of "done."
     else)? Which skill facets are worth scaling, and how do you keep it simple and
     legible? How does the player see what an upgrade did?
   - *Extend:* `SKILLS`, `statsAt` / leveling, `dealDamage`, the shop UI, the Den.
+  - *Shipped:* one skill point per level-up (`save.skillPts`), spent in a new Den → Skills
+    panel (`refreshSkills`, modal `#mSkills`) on any of the player's 7 usable skills, 3
+    tiers each at +10%/tier. Attack skills scale `sk.base` via a new `skillMult(owner,key)`
+    helper (applied in `explode`'s `dealDamage`/`damageObstacle` calls); Heal scales its
+    restored %; Shield gets extra block reduction per tier. `skillMult` only ever returns
+    >1 for the player's own dragon in campaign mode — AI/duel dragons are untouched by
+    design, so duel mode and the AI are unaffected. Guessed the 10%/tier and shield's 6%
+    step; a future run could retune once battles are played at higher tiers.
   - *Done when:* the player can upgrade a skill, the upgrade visibly changes that skill's
     behavior in battle, and it persists; add a check that an applied upgrade changes the
     skill's resolved output and survives save/load. **Must not alter the turn loop.**
