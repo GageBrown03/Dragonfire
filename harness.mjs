@@ -195,7 +195,8 @@ function loadGame() {
       SKILLS, DRAGONS, GEAR,
       statsAt, expNeed, other,
       startBattle, startDuel, checkEnd, fire, aiSolve, Dragon,
-      persist, loadSave, wipeSave, ladderWindow, refreshDen, BIOME_ORDER, blankRecord
+      persist, loadSave, wipeSave, ladderWindow, refreshDen, BIOME_ORDER, blankRecord,
+      castInstant, skillMult, refreshSkills, SKILL_KEYS
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -428,6 +429,48 @@ const flush = () => new Promise((r) => setImmediate(r));
     sv.record = H.blankRecord ? H.blankRecord() : { wins: 0, losses: 0, alphaWins: 0, bestStage: 1, lifeGold: 0, lifeExp: 0 };
     await H.loadSave();
     assert(JSON.stringify(sv.record) === JSON.stringify(snapshot), 'career record should survive a save/load round trip');
+    clearTimers();
+  });
+
+  // -- TEST 9: skill upgrades raise resolved output and persist ---------------
+  await test('skill upgrades raise a trained skill\'s resolved output, stay off AI dragons, and persist', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 1; sv.stage = 1; sv.skillPts = 5; sv.skillUpg = {};
+    H.B.modeType = 'campaign';
+
+    const d = new H.Dragon('ember', 1, false, 300);
+    assert(H.skillMult(d, 'heal') === 1, 'an untrained skill should resolve to a 1x multiplier');
+
+    d.mp = 100; d.hp = 1;
+    H.castInstant(d, 'heal');
+    const healedUntrained = d.hp - 1;
+    clearTimers();
+
+    sv.skillUpg.heal = 3;
+    assert(H.skillMult(d, 'heal') > 1, 'training a skill should raise its resolved multiplier');
+    d.mp = 100; d.hp = 1;
+    H.castInstant(d, 'heal');
+    const healedTrained = d.hp - 1;
+    clearTimers();
+    assert(healedTrained > healedUntrained,
+      `a level-3-trained heal (${healedTrained}) should restore more than an untrained heal (${healedUntrained})`);
+
+    const aiD = new H.Dragon('ember', 1, true, 900);
+    assert(H.skillMult(aiD, 'heal') === 1, 'an AI/enemy dragon must not benefit from the player\'s trained tiers');
+
+    // playable/visible: the Den's Skills panel lists every trainable skill for the raised dragon
+    H.refreshSkills();
+    const rows = document.getElementById('skillRows');
+    assert(rows.children.length === H.SKILL_KEYS(sv.dragonKey).length, 'skill panel should list one row per trainable skill');
+
+    // persistence
+    H.persist();
+    sv.skillUpg = {}; sv.skillPts = 0;
+    await H.loadSave();
+    assert(sv.skillUpg.heal === 3, `trained tier should survive load (got ${sv.skillUpg.heal})`);
+    assert(sv.skillPts === 5, `unspent skill points should survive load (got ${sv.skillPts})`);
     clearTimers();
   });
 
