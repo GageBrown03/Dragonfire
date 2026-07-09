@@ -86,7 +86,7 @@ and the definition of "done."
     behavior in battle, and it persists; add a check that an applied upgrade changes the
     skill's resolved output and survives save/load. **Must not alter the turn loop.**
 
-- [ ] **Gear depth & loadout.** Broaden gear beyond the current three lines and let the
+- [x] **Gear depth & loadout.** Broaden gear beyond the current three lines and let the
   player see what their dragon is wearing.
   - *Intent:* more interesting permanent-progression choices, and a clear view of the
     dragon's equipped gear and what it grants.
@@ -95,9 +95,24 @@ and the definition of "done."
     does the loadout view live?
   - *Extend:* `GEAR`, `refreshShop`, the stat application in the `Dragon` constructor,
     `dealDamage` (for crit), the Den.
+  - *Shipped:* a fourth gear line, `GEAR.talon` ("Lucky Talon", 🍀), 3 tiers of `+4/9/15
+    LUK`, buyable in the existing shop (`refreshShop` already iterated `Object.keys(GEAR)`,
+    so it picked the new line up for free). `Dragon`'s constructor now adds
+    `GEAR.talon.vals[tier]` onto `this.luk`, which was already the input to `dealDamage`'s
+    existing crit-chance roll (`5+att.luk*0.4`) — no new crit system needed, LUK gear just
+    feeds the one that was already there. Added a `#denGear` loadout row to the Den
+    (`recordRow`-styled, reusing existing CSS) showing all four gear lines and their
+    current tier at a glance. While verifying live in a browser, caught and fixed a
+    pre-existing staleness bug: closing the shop from the Den (`btnShopClose`) never called
+    `refreshDen()`, so gold/gear bought from the Den's shop didn't show until the next
+    screen change — now it does when `shopReturn==='den'`.
   - *Done when:* new gear is buyable, equipped gear is visible, and its effect shows up in
     battle and persists; add a check that a purchased gear tier changes the dragon's
-    resolved stats and persists across save/load.
+    resolved stats and persists across save/load. **Verified**: harness test 10 drives the
+    real Den → Shop → buy → close flow (not a reimplementation), checks resolved `luk`
+    changes on a live `Dragon`, and round-trips through save/load; also confirmed live in
+    Playwright/Chromium (screenshot: Den shows "🍀 LUK T1" after purchase, resolved luk
+    12→16 on a real `Dragon` instance).
 
 ## Tier C — Identity & stakes
 

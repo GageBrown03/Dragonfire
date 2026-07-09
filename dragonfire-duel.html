@@ -303,6 +303,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <div id="denLadder" class="ladder"></div>
     <div id="denGold" style="font-size:13.5px;color:var(--gold)"></div>
     <div id="denRecord" class="recordRow"></div>
+    <div id="denGear" class="recordRow"></div>
     <div id="denSkillPts" style="font-size:12px;color:var(--gold);min-height:14px"></div>
     <div class="rowBtns">
       <button class="bigBtn primary" id="btnDenNext" style="font-size:16px;padding:12px 30px">Next Battle ▶</button>
@@ -471,7 +472,8 @@ const expNeed=l=>50+l*40;
 const GEAR={
   fang: {ic:'🗡', name:'Drake Fang', stat:'atk', lbl:'ATK', vals:[0,6,12,20], cost:[200,450,800]},
   scale:{ic:'🛡', name:'Iron Scale', stat:'def', lbl:'DEF', vals:[0,6,12,20], cost:[200,450,800]},
-  charm:{ic:'🪶', name:'Gale Charm', stat:'agi', lbl:'AGI', vals:[0,8,16,26], cost:[150,350,650]}
+  charm:{ic:'🪶', name:'Gale Charm', stat:'agi', lbl:'AGI', vals:[0,8,16,26], cost:[150,350,650]},
+  talon:{ic:'🍀', name:'Lucky Talon', stat:'luk', lbl:'LUK', vals:[0,4,9,15], cost:[220,480,850]}
 };
 
 /* ---------- biomes ---------- */
@@ -496,13 +498,14 @@ const BIOME_ORDER=['meadow','cinder','tundra'];
 
 /* ---------- persistent save ---------- */
 function blankRecord(){ return {wins:0,losses:0,alphaWins:0,bestStage:1,lifeGold:0,lifeExp:0}; }
-let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},gear:{fang:0,scale:0,charm:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{}};
+let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},gear:{fang:0,scale:0,charm:0,talon:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{}};
 const SAVE_KEY='dragonfire-duel-save';
 let storageOK=false;
 async function loadSave(){
   try{const r=await window.storage.get(SAVE_KEY);
     if(r&&r.value){const d=JSON.parse(r.value); if(d&&d.v===1){save=Object.assign(save,d);
-      if(!save.gear)save.gear={fang:0,scale:0,charm:0};
+      if(!save.gear)save.gear={fang:0,scale:0,charm:0,talon:0};
+      if(typeof save.gear.talon!=='number')save.gear.talon=0;
       if(!save.record)save.record=blankRecord();
       if(typeof save.skillPts!=='number')save.skillPts=0;
       if(!save.skillUpg)save.skillUpg={};}}
@@ -514,7 +517,7 @@ function persist(){
   try{ window.storage.set(SAVE_KEY,JSON.stringify(save)).catch(()=>{}); }catch(e){}
 }
 async function wipeSave(){
-  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},gear:{fang:0,scale:0,charm:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{}};
+  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},gear:{fang:0,scale:0,charm:0,talon:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{}};
   try{ await window.storage.delete(SAVE_KEY);}catch(e){}
 }
 
@@ -800,6 +803,7 @@ class Dragon{
       this.atk+=GEAR.fang.vals[save.gear.fang||0];
       this.def+=GEAR.scale.vals[save.gear.scale||0];
       this.agi+=GEAR.charm.vals[save.gear.charm||0];
+      this.luk+=GEAR.talon.vals[save.gear.talon||0];
     }
     this.maxstam=90+this.agi; this.stamina=this.maxstam;
     this.name=(isAI?(alpha?'Alpha ':'Wild '):'')+D.name;
@@ -1568,7 +1572,7 @@ $('btnDenSkills').addEventListener('click',()=>{sfx.click(); refreshSkills(); sh
 $('btnSkillsClose').addEventListener('click',()=>{sfx.click(); hideModals();});
 $('btnDenNext').addEventListener('click',()=>{sfx.click(); startBattle(save.stage);});
 $('btnDenTitle').addEventListener('click',()=>{sfx.click(); goTitle();});
-$('btnShopClose').addEventListener('click',()=>{sfx.click(); shopReturn==='mVictory'?showModal('mVictory'):hideModals();});
+$('btnShopClose').addEventListener('click',()=>{sfx.click(); if(shopReturn==='den')refreshDen(); shopReturn==='mVictory'?showModal('mVictory'):hideModals();});
 $('btnNext').addEventListener('click',()=>{sfx.click(); goDen();});
 $('btnRetry').addEventListener('click',()=>{sfx.click(); startBattle(B.stage);});
 $('btnQuit').addEventListener('click',()=>{sfx.click(); goTitle();});
@@ -1630,6 +1634,10 @@ function refreshDen(){
     '<span><b>'+rec.alphaWins+'</b> alphas felled</span>'+
     '<span>best stage <b>'+rec.bestStage+'</b></span>'+
     '<span><b>'+rec.lifeGold+'g</b> earned</span>';
+  $('denGear').innerHTML=Object.keys(GEAR).map(k=>{
+    const g=GEAR[k], tier=save.gear[k]||0;
+    return '<span title="'+g.name+'">'+g.ic+' '+g.lbl+' T'+tier+'</span>';
+  }).join('');
   $('denSkillPts').textContent=save.skillPts>0?(save.skillPts+' skill point'+(save.skillPts>1?'s':'')+' to spend'):'';
 }
 function goDen(){
