@@ -196,7 +196,7 @@ function loadGame() {
       statsAt, expNeed, other,
       startBattle, startDuel, checkEnd, fire, aiSolve, Dragon,
       persist, loadSave, wipeSave, ladderWindow, refreshDen, BIOME_ORDER, blankRecord,
-      castInstant, skillMult, refreshSkills, SKILL_KEYS
+      castInstant, skillMult, refreshSkills, SKILL_KEYS, refreshShop
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -471,6 +471,50 @@ const flush = () => new Promise((r) => setImmediate(r));
     await H.loadSave();
     assert(sv.skillUpg.heal === 3, `trained tier should survive load (got ${sv.skillUpg.heal})`);
     assert(sv.skillPts === 5, `unspent skill points should survive load (got ${sv.skillPts})`);
+    clearTimers();
+  });
+
+  // -- TEST 10: gear depth & loadout — the LUK line resolves stats, is visible, persists --
+  await test('a purchased LUK gear tier raises resolved luk/crit chance, is visible in the shop and Den, and persists', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+    sv.dragonKey = 'frost'; sv.level = 1; sv.stage = 1; sv.gold = 5000; sv.gear = { fang: 0, scale: 0, charm: 0, talon: 0 };
+    H.B.modeType = 'campaign';
+
+    assert(H.GEAR.talon, 'GEAR should define a LUK line (talon)');
+    const base = H.statsAt('frost', 1).luk;
+    const dBefore = new H.Dragon('frost', 1, false, 300);
+    assert(dBefore.luk === base, `untrained dragon's luk should match base stats (got ${dBefore.luk}, base ${base})`);
+
+    const cost = H.GEAR.talon.cost[0];
+    sv.gold -= cost;               // simulate buying Lucky Talon tier 1 (as the shop button would)
+    sv.gear.talon = 1;
+    const dAfter = new H.Dragon('frost', 1, false, 300);
+    assert(dAfter.luk === base + H.GEAR.talon.vals[1],
+      `a tier-1 Lucky Talon should raise resolved luk by ${H.GEAR.talon.vals[1]} (got ${dAfter.luk - base})`);
+    assert(dAfter.luk > dBefore.luk, 'equipped LUK gear should raise resolved luk over the untrained dragon');
+
+    // playable/visible: drive the real Den -> Shop -> buy -> close flow, not a reimplementation.
+    sv.gear.talon = 0; sv.gold = 5000; sv.record = H.blankRecord();
+    H.refreshDen();
+    document.getElementById('btnDenShop').click();       // opens the shop with shopReturn='den'
+    const gearRows = document.getElementById('gearRows');
+    assert(gearRows.children.length === Object.keys(H.GEAR).length, 'shop should list one row per GEAR line, including talon');
+    const talonRow = gearRows.children.find(r => r.innerHTML.includes('Lucky Talon'));
+    assert(talonRow, 'the shop should show a Lucky Talon row');
+    talonRow.children[0].click();                         // the buy button for that row (only real child; icon/name are innerHTML)
+    assert(sv.gear.talon === 1, `buying via the shop UI should set the tier (got ${sv.gear.talon})`);
+    document.getElementById('btnShopClose').click();     // back to the Den
+    const denGear = document.getElementById('denGear');
+    assert(denGear.innerHTML.includes('LUK T1'), `Den loadout should show the newly bought LUK tier after closing the shop (got ${denGear.innerHTML})`);
+
+    // persistence
+    H.persist();
+    sv.gear.talon = 0; sv.gold = -1;
+    await H.loadSave();
+    assert(sv.gear.talon === 1, `LUK gear tier should survive load (got ${sv.gear.talon})`);
+    assert(sv.gold === 5000 - cost, `gold spend should survive load (got ${sv.gold})`);
     clearTimers();
   });
 
