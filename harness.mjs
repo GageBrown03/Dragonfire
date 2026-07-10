@@ -196,7 +196,8 @@ function loadGame() {
       statsAt, expNeed, other,
       startBattle, startDuel, checkEnd, fire, aiSolve, Dragon,
       persist, loadSave, wipeSave, ladderWindow, refreshDen, BIOME_ORDER, blankRecord,
-      castInstant, skillMult, refreshSkills, SKILL_KEYS, refreshShop
+      castInstant, skillMult, refreshSkills, SKILL_KEYS, refreshShop,
+      dealDamage, effectiveAtk, ALPHA_TITLES, ENRAGE_HP_PCT, ENRAGE_ATK_MULT, Math
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -515,6 +516,88 @@ const flush = () => new Promise((r) => setImmediate(r));
     await H.loadSave();
     assert(sv.gear.talon === 1, `LUK gear tier should survive load (got ${sv.gear.talon})`);
     assert(sv.gold === 5000 - cost, `gold spend should survive load (got ${sv.gold})`);
+    clearTimers();
+  });
+
+  // -- TEST 11: alpha boss identity — title, enrage, bot-vs-bot integrity, reward --
+  await test('alpha bosses carry a distinct title, enrage below 40% HP, hit harder enraged, grant a bonus skill point, and the bot-vs-bot sim stays green against one', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+
+    // -- named identity --------------------------------------------------------
+    const bossPreview = new H.Dragon('ember', 5, true, 900, true);
+    assert(H.ALPHA_TITLES.ember, 'ALPHA_TITLES should define a title for every roster dragon');
+    assert(bossPreview.name === H.ALPHA_TITLES.ember, `an alpha dragon's name should be its title (got "${bossPreview.name}")`);
+    assert(bossPreview.name !== 'Alpha Ember', 'the title should replace the old generic "Alpha <name>" tag');
+
+    // -- effectiveAtk is a pure +18% multiplier while enraged -------------------
+    assert(H.effectiveAtk({ atk: 100, enraged: false }) === 100, 'a calm dragon\'s effective atk should be unboosted');
+    const boosted = H.effectiveAtk({ atk: 100, enraged: true });
+    assert(boosted === Math.round(100 * H.ENRAGE_ATK_MULT), `an enraged dragon's effective atk should be boosted by ENRAGE_ATK_MULT (got ${boosted})`);
+
+    // -- enrage triggers once HP crosses the threshold, and only then ----------
+    H.B.modeType = 'campaign';
+    sv.dragonKey = 'frost'; sv.gear = { fang: 0, scale: 0, charm: 0, talon: 0 };
+    const attacker = new H.Dragon('frost', 5, false, 300);
+    const boss = new H.Dragon('ember', 5, true, 900, true);
+    assert(boss.enraged === false, 'a fresh alpha should not start enraged');
+    boss.hp = Math.round(boss.maxhp * 0.44);       // comfortably above the 40% threshold
+    H.dealDamage(attacker, boss, 70, 1, 'shot');   // sized so it crosses the threshold under any rand()/crit draw
+    assert(boss.enraged === true, `boss should enrage once HP drops below ${H.ENRAGE_HP_PCT * 100}% (hp now ${boss.hp}/${boss.maxhp})`);
+    assert(boss.hp > 0, 'the hit that triggers enrage should not itself be lethal in this scenario');
+
+    // -- an enraged dragon deals more damage than an identical calm one --------
+    // Pin rand()/crit rolls to a fixed draw so the +18% atk effect isn't lost in noise.
+    const realRandom = H.Math.random;
+    H.Math.random = () => 0.5;
+    const calmClone = new H.Dragon('ember', 5, true, 900, true);
+    const enragedClone = new H.Dragon('ember', 5, true, 900, true);
+    enragedClone.enraged = true;
+    const dummyA = new H.Dragon('frost', 5, false, 300), dummyB = new H.Dragon('frost', 5, false, 300);
+    dummyA.hp = dummyA.maxhp = 100000; dummyB.hp = dummyB.maxhp = 100000;
+    H.dealDamage(calmClone, dummyA, 200, 1, null);
+    H.dealDamage(enragedClone, dummyB, 200, 1, null);
+    H.Math.random = realRandom;
+    const calmDmg = 100000 - dummyA.hp, enragedDmg = 100000 - dummyB.hp;
+    assert(enragedDmg > calmDmg, `enraged boss should deal more damage than a calm one (calm ${calmDmg}, enraged ${enragedDmg})`);
+
+    // -- reward: an alpha win grants a guaranteed bonus skill point ------------
+    sv.dragonKey = 'ember'; sv.level = 50; sv.exp = 0; sv.stage = 5; sv.skillPts = 0; // level 50 so no EXP level-up muddies the count
+    H.startBattle(5);
+    let B = H.B;
+    assert(B.e.alpha, 'stage 5 should still be an alpha battle');
+    B.e.hp = 0;
+    H.checkEnd();
+    assert(sv.skillPts === 1, `an alpha win should grant exactly one bonus skill point when no level-up occurs (got ${sv.skillPts})`);
+    tick(1100);
+
+    // -- bot-vs-bot turn integrity must stay green against an alpha battle -----
+    clearTimers();
+    sv.dragonKey = 'terra'; sv.level = 4; sv.stage = 10; sv.exp = 0;
+    H.startBattle(10);
+    B = H.B;
+    assert(B.e.alpha, 'stage 10 should be an alpha battle');
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `alpha battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns in the alpha battle, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
     clearTimers();
   });
 
