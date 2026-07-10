@@ -116,7 +116,7 @@ and the definition of "done."
 
 ## Tier C — Identity & stakes
 
-- [ ] **Alpha boss identity.** Turn the every-5th-stage alpha from a stat-boosted clone
+- [x] **Alpha boss identity.** Turn the every-5th-stage alpha from a stat-boosted clone
   into a fight the player remembers.
   - *Intent:* milestone battles that feel distinct — a sense of "a real boss" — with stakes
     and a reward that matches.
@@ -125,9 +125,32 @@ and the definition of "done."
     makes its reward feel special?
   - *Extend:* the `alpha` flag and enemy setup in `startBattle`, `aiThink`, `victory`
     rewards, the ladder signposting from Tier A.
+  - *Shipped:* a per-dragon `ALPHA_TITLES` map (e.g. Ember's alpha is "Cindermaw", Terra's
+    is "Quakehide") replaces the old generic "Alpha <name>" tag everywhere the name is
+    shown (HUD plates, stage tag, victory text). A signature behavior: alphas **enrage**
+    once at HP <= 40% (`ENRAGE_HP_PCT`) — a one-way flag flip inside `dealDamage` — which
+    deals +18% effective attack (`effectiveAtk`/`ENRAGE_ATK_MULT`) and, in `aiThink`, turns
+    off healing/shielding and raises both attack-skill frequency and aim accuracy, so an
+    enraged boss visibly fights more aggressively and dangerously. It's telegraphed before
+    the fight (a toast naming the boss and warning about the enrage threshold as the battle
+    opens) and during it (a red "NAME ENRAGES!" float, a screen-shake burst, and a 😡 badge
+    that stays on the HUD plate while enraged). The reward is a guaranteed +1 bonus skill
+    point on any alpha win, on top of normal EXP/gold/level-up points, called out on the
+    victory screen ("+1 bonus skill point"; sub-text also reads "the alpha is felled!").
+    Guessed the 40% threshold, +18% enrage boost, and the six titles — a future run could
+    reskin the titles or add a second-tier enrage if alphas still feel too similar to a
+    regular fight once the roster grows.
   - *Done when:* an alpha stage is visibly different to fight and to win, and rewards
     accordingly; **this is combat-adjacent, so the bot-vs-bot turn-integrity sim must still
     pass against an alpha battle** — add an alpha battle to the harness's coverage.
+    **Verified**: harness test 11 drives a real alpha battle bot-vs-bot to completion with
+    strict turn alternation, asserts the title replaces the generic name, asserts enrage
+    triggers exactly at the HP threshold and boosts damage (RNG pinned via a `Math`
+    override so the +18% isn't lost in the existing ±8%/crit variance), and asserts the
+    guaranteed bonus skill point on an alpha win with no confounding level-up. Also
+    confirmed live in Playwright/Chromium: HUD shows "Nightgorge" + 😡 mid-fight
+    (screenshot), and the victory modal reads "Nightgorge has fallen — the alpha is
+    felled!" / "+220 Gold + 1 bonus skill point".
 
 ## Tier D — Haypi alignment (second wave)
 

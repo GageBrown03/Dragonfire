@@ -462,6 +462,10 @@ const DRAGONS={
     base:{hp:590,atk:60,def:50,agi:26,luk:9},  grow:{hp:48,atk:6,  def:4.4,agi:1.8,luk:.8},
     blurb:'Patient rot. Everything it touches keeps dying.'}
 };
+// Alpha bosses (every 5th stage) get a distinct title instead of a generic "Alpha <name>" tag,
+// and enrage once below ENRAGE_HP_PCT — see Dragon.enraged / dealDamage / aiThink.
+const ALPHA_TITLES={ember:'Cindermaw',frost:'Glacierfang',volt:'Stormcrown',terra:'Quakehide',dusk:'Nightgorge',venom:'Plaguewing'};
+const ENRAGE_HP_PCT=0.4, ENRAGE_ATK_MULT=1.18;
 const SKILL_KEYS=k=>['shot','twin','mega','heal','shield',DRAGONS[k].uniq[0],DRAGONS[k].uniq[1]];
 const statsAt=(key,lvl)=>{const D=DRAGONS[key],b=D.base,g=D.grow,n=lvl-1;return{
   hp:Math.round(b.hp+g.hp*n), atk:Math.round(b.atk+g.atk*n), def:Math.round(b.def+g.def*n),
@@ -806,7 +810,8 @@ class Dragon{
       this.luk+=GEAR.talon.vals[save.gear.talon||0];
     }
     this.maxstam=90+this.agi; this.stamina=this.maxstam;
-    this.name=(isAI?(alpha?'Alpha ':'Wild '):'')+D.name;
+    this.enraged=false;
+    this.name=alpha?(ALPHA_TITLES[key]||('Alpha '+D.name)):((isAI?'Wild ':'')+D.name);
     this.col=D.col; this.col2=D.col2; this.belly=D.belly;
     this.x=x; this.y=groundAt(x); this.vy=0; this.air=false; this.fallFrom=0;
     this.facing=1;
@@ -1015,10 +1020,11 @@ function startBattle(stage){
   B.aim.ang=45; B.aim.pow=0; B.aim.charging=false; B.aim.skill='shot';
   $('itemCtl').style.display='flex';
   rollWind();
-  enterBattleUI('Stage '+stage+(alpha?' ★':'')+' · '+curBiome.name);
+  enterBattleUI('Stage '+stage+(alpha?' ★ '+B.e.name:'')+' · '+curBiome.name);
   camSnap(B.p.x,B.p.y-120);
   setTimeout(()=>startTurn(B.p),700);
-  if(!B.hinted){B.hinted=true; setTimeout(()=>announce('Drag back from your dragon to slingshot — or hold FIRE.'),1600);}
+  if(alpha)setTimeout(()=>announce(B.e.name+' — Alpha boss. Enrages below 40% HP!'),1400);
+  if(!B.hinted){B.hinted=true; setTimeout(()=>announce('Drag back from your dragon to slingshot — or hold FIRE.'),alpha?3200:1600);}
 }
 function startDuel(k1,k2){
   B.mode='battle'; B.modeType='duel'; B.stage=0; B.state='idle'; B.duelKeys=[k1,k2];
@@ -1180,8 +1186,10 @@ function skillMult(owner,key){
   if(owner.isAI||B.modeType!=='campaign')return 1;
   return 1+(save.skillUpg[key]||0)*0.10;
 }
+function effectiveAtk(d){ return d.enraged?Math.round(d.atk*ENRAGE_ATK_MULT):d.atk; }
 function dealDamage(att,tgt,base,falloff,skillKey){
-  const ratio=(att.atk*2)/(att.atk+tgt.def);
+  const attAtk=effectiveAtk(att);
+  const ratio=(attAtk*2)/(attAtk+tgt.def);
   let dmg=base*ratio*falloff*rand(0.92,1.08);
   let crit=false;
   if(tgt!==att && Math.random()*100 < 5+att.luk*0.4){crit=true; dmg*=1.5;}
@@ -1194,6 +1202,13 @@ function dealDamage(att,tgt,base,falloff,skillKey){
   tgt.hurtT=.45; tgt.fallFrom=tgt.y; tgt.vy=-2.6; tgt.air=true; tgt.y-=1.2;
   floatTxt(tgt.x,tgt.y-86,(crit?'CRIT −':'−')+dmg, tgt===B.p?'#ff5a4d':'#ffd23f', crit);
   crit?sfx.crit():sfx.hit();
+  if(tgt.alpha&&!tgt.enraged&&tgt.hp>0&&tgt.hp<=tgt.maxhp*ENRAGE_HP_PCT){
+    tgt.enraged=true;
+    floatTxt(tgt.x,tgt.y-140,tgt.name.toUpperCase()+' ENRAGES!','#ff4d4d',true);
+    announce(tgt.name+' enrages — hits harder now!');
+    burst(tgt.x,tgt.y-30,['#ff4d4d','#ff8a3d','#ffffff'],20,3.6,{up:1.8,size:5});
+    cam.shake=Math.min(16,cam.shake+8);
+  }
   if(tgt!==att && falloff>0 && skillKey){
     const sk=SKILLS[skillKey];
     if(sk.burn){tgt.status.burn=Math.max(tgt.status.burn,sk.burn); floatTxt(tgt.x,tgt.y-122,'Burning!','#ff8a3d');}
@@ -1252,12 +1267,13 @@ function victory(){
   save.record.bestStage=Math.max(save.record.bestStage,B.stage);
   let ups=0; while(save.exp>=expNeed(save.level)){save.exp-=expNeed(save.level); save.level++; ups++;}
   save.skillPts+=ups;
+  if(alpha)save.skillPts+=1; // trophy bonus for felling an alpha, on top of any level-up points
   save.stage=B.stage+1; persist();
-  $('vExp').textContent='+'+exp+' EXP'; $('vGold').textContent='+'+gold+' Gold';
+  $('vExp').textContent='+'+exp+' EXP'; $('vGold').textContent='+'+gold+' Gold'+(alpha?' + 1 bonus skill point':'');
   let lvTxt=ups?('LEVEL UP! Now level '+save.level+' — stats raised, +'+ups+' skill point'+(ups>1?'s':'')+' to spend in the Den.'):'';
   if(ups&&save.level>=4&&save.level-ups<4)lvTxt+=' Second signature skill unlocked!';
   $('vLvl').textContent=lvTxt;
-  $('vSub').textContent=B.e.name+' has fallen.';
+  $('vSub').textContent=alpha?(B.e.name+' has fallen — the alpha is felled!'):(B.e.name+' has fallen.');
   setTimeout(()=>showModal('mVictory'),1000);
 }
 function defeat(){
@@ -1310,8 +1326,11 @@ function aiThink(){
   if(B.mode!=='battle'||B.state!=='anim'||B.active!==B.e)return;
   const me=B.e,foe=B.p;
   me.facing=foe.x>me.x?1:-1;
-  if(me.hp<me.maxhp*0.35 && me.mp>=SKILLS.heal.cost && Math.random()<0.65){castInstant(me,'heal');return;}
-  if(me.hp<me.maxhp*0.5 && !me.status.shield && me.mp>=SKILLS.shield.cost && Math.random()<0.2){castInstant(me,'shield');return;}
+  // Enraged alphas fight recklessly: no healing/shielding, favor big attacks.
+  if(!me.enraged){
+    if(me.hp<me.maxhp*0.35 && me.mp>=SKILLS.heal.cost && Math.random()<0.65){castInstant(me,'heal');return;}
+    if(me.hp<me.maxhp*0.5 && !me.status.shield && me.mp>=SKILLS.shield.cost && Math.random()<0.2){castInstant(me,'shield');return;}
+  }
   let skKey='shot';
   const D=DRAGONS[me.key], uniqs=[D.uniq[0]];
   if(me.level>=4)uniqs.push(D.uniq[1]);
@@ -1319,7 +1338,7 @@ function aiThink(){
   for(const u of uniqs){const s=SKILLS[u]; if(s.type==='attack'&&s.aiOk!==false&&me.mp>=s.cost)opts.push(u);}
   if(me.mp>=SKILLS.mega.cost)opts.push('mega');
   if(me.mp>=SKILLS.twin.cost)opts.push('twin');
-  if(opts.length&&Math.random()<0.55)skKey=opts[randi(0,opts.length-1)];
+  if(opts.length&&Math.random()<(me.enraged?0.85:0.55))skKey=opts[randi(0,opts.length-1)];
   const sk=SKILLS[skKey];
   let sol=aiSolve(me,foe,sk,false);
   if(sol.err>150 && !me.moveLock && me.stamina>0){
@@ -1341,7 +1360,8 @@ function aiBeginAim(skKey,sol){
     const alt=aiSolve(me,B.p,SKILLS.shot,false);
     if(alt.err<sol.err-60){skKey='shot'; sol=alt;}
   }
-  const sa=Math.max(1.2,7-B.stage*0.6), sp=Math.max(1.6,8-B.stage*0.7);
+  const enrageK=me.enraged?0.7:1;
+  const sa=Math.max(1.2,7-B.stage*0.6)*enrageK, sp=Math.max(1.6,8-B.stage*0.7)*enrageK;
   const ang=clamp(sol.ang+gauss(sa),6,86), pow=clamp(sol.pow+gauss(sp),16,100);
   B.aiPlan={phase:'aim',t:0,ang,pow,skKey,startAng:45};
 }
@@ -1953,6 +1973,7 @@ function setPlate(pre,d,suffix){
   $(pre+'Mp').style.width=clamp(d.mp/d.maxmp*100,0,100)+'%';
   $(pre+'MpT').textContent=d.mp+' MP';
   let s='';
+  if(d.enraged)s+='😡 ';
   if(d.status.shield>0)s+='🛡 ';
   if(d.status.burn>0)s+='🔥×'+d.status.burn+' ';
   if(d.status.poison>0)s+='☠×'+d.status.poison+' ';
