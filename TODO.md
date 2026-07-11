@@ -159,7 +159,7 @@ dragons, battle props, reward/treasure levels, per-level scores, stone synthesis
 deliberately do not overlap Tiers A–C; build them after, same rules (topmost unchecked,
 one per run).*
 
-- [ ] **Element affinity.** Make the six elements matter in combat, not just in the art.
+- [x] **Element affinity.** Make the six elements matter in combat, not just in the art.
   - *Intent:* the player reads the enemy's element and it changes how the fight plays —
     the roster's Fire/Ice/Thunder/Earth/Shadow/Toxin identity becomes mechanical, the way
     Haypi dragons' elemental prowess mattered.
@@ -171,9 +171,35 @@ one per run).*
     either way, but decide deliberately and say so in the PR.)
   - *Extend:* `DRAGONS` (each has `el`), `dealDamage`, `floatTxt`, the HUD plates,
     `startBattle`.
+  - *Shipped:* a simple cyclic six-element wheel (`ELEMENT_ORDER`, `elRel`, `elMult`) —
+    every element is strong (`1.2x`) against exactly one other and weak (`0.85x`) against
+    exactly one other, applied in `dealDamage` to every attack (all shots are elemental
+    breath, so basic shots carry the element too, not just signatures — the simpler of the
+    two Weigh options). Telegraphed three ways: a pre-battle toast naming the matchup
+    (`announceMatchup`, fired from both `startBattle` and `startDuel`), a ▲/▼ badge next to
+    each HUD plate's level tag (`setPlate` now takes the opposing dragon and calls `elRel`),
+    and "Effective!"/"Resisted" floats on hit (`dealDamage`, same `floatTxt` pattern as the
+    existing "Blocked!" text). Each dragon plate's name is also prefixed with its element's
+    icon (🔥❄⚡🪨🌑☠) for at-a-glance reading. Decided duel mode shares the rule: it's a
+    core `dealDamage` rule like crit/shield, not a campaign-only system, so it needed no
+    special-casing and duel dragons already show their element at select. Guessed the
+    1.2x/0.85x multiplier sizes and the wheel order (Fire→Toxin→Thunder→Ice→Earth→Shadow→
+    Fire) — a future run could retune or reskin the pairings once matchups are felt across
+    more play.
   - *Done when:* the matchup is readable in the UI and visibly changes damage in battle;
     harness asserts advantaged > neutral > resisted resolved damage and the bot-vs-bot
-    sim stays green.
+    sim stays green. **Verified**: harness test 12 checks the wheel is a consistent cycle
+    (every element has exactly one adv/one res, no mutual-advantage pairs), that resolved
+    damage is strictly advantaged > neutral > resisted with attacker/defender stats held
+    equal (only `.el` varies), that duel mode applies the same multiplier as campaign, and
+    drives a real bot-vs-bot campaign battle with an elemental matchup to completion with
+    strict turn alternation. Also confirmed live in Playwright/Chromium: picking Ember vs
+    Venom in duel mode shows the pre-battle toast "Fire is strong against Toxin!" and a
+    green ▲ next to Ember's level on the HUD plate (screenshots taken); did not manage to
+    land a screenshotted hit through browser automation (aiming via simulated
+    drag/charge was fiddly), so the in-combat "Effective!"/"Resisted" float text is
+    verified by code path and the harness's damage-ordering assertion rather than an
+    additional screenshot.
 
 - [ ] **Battle amplifiers (tactical items).** Haypi battles were fought with props, not
   just heals — one-shot consumables that bend a single turn.

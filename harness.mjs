@@ -197,7 +197,8 @@ function loadGame() {
       startBattle, startDuel, checkEnd, fire, aiSolve, Dragon,
       persist, loadSave, wipeSave, ladderWindow, refreshDen, BIOME_ORDER, blankRecord,
       castInstant, skillMult, refreshSkills, SKILL_KEYS, refreshShop,
-      dealDamage, effectiveAtk, ALPHA_TITLES, ENRAGE_HP_PCT, ENRAGE_ATK_MULT, Math
+      dealDamage, effectiveAtk, ALPHA_TITLES, ENRAGE_HP_PCT, ENRAGE_ATK_MULT, Math,
+      elRel, elMult, ELEMENT_ORDER
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -597,6 +598,85 @@ const flush = () => new Promise((r) => setImmediate(r));
     }
     assert(B.state === 'over', `alpha battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
     assert(turnsSeen >= 4, `expected several turns in the alpha battle, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    clearTimers();
+  });
+
+  await test('element affinity: advantaged > neutral > resisted resolved damage, it is readable on the wheel, and the bot-vs-bot sim stays green', async () => {
+    clearTimers();
+    await H.wipeSave();
+
+    // -- the wheel is a consistent cycle: every element has exactly one adv and one res --
+    for (const el of H.ELEMENT_ORDER) {
+      const advCount = H.ELEMENT_ORDER.filter(o => H.elRel(el, o) === 'adv').length;
+      const resCount = H.ELEMENT_ORDER.filter(o => H.elRel(el, o) === 'res').length;
+      assert(advCount === 1, `${el} should be strong against exactly one element (got ${advCount})`);
+      assert(resCount === 1, `${el} should be weak against exactly one element (got ${resCount})`);
+      const foe = H.ELEMENT_ORDER.find(o => H.elRel(el, o) === 'adv');
+      assert(H.elRel(foe, el) === 'res', `if ${el} is strong vs ${foe}, ${foe} should be weak vs ${el} (no mutual advantage)`);
+    }
+    assert(H.elRel('Fire', 'Fire') === 'neu', 'an element should never have a matchup against itself');
+
+    // -- resolved damage: advantaged > neutral > resisted, all else held equal --------
+    const realRandom = H.Math.random;
+    H.Math.random = () => 0.5;   // pin rand()/crit rolls so only the elemental factor varies
+    const emberAtk = new H.Dragon('ember', 5, true, 900);      // Fire — adv vs Toxin, res vs Shadow
+    // Same base dragon (identical def/atk) with only .el swapped, so the multiplier is isolated.
+    const advFoe = new H.Dragon('terra', 5, false, 300); advFoe.el = 'Toxin';
+    const neuFoe = new H.Dragon('terra', 5, false, 300); neuFoe.el = 'Earth';
+    const resFoe = new H.Dragon('terra', 5, false, 300); resFoe.el = 'Shadow';
+    for (const d of [advFoe, neuFoe, resFoe]) d.hp = d.maxhp = 100000;
+    H.dealDamage(emberAtk, advFoe, 200, 1, 'shot');
+    H.dealDamage(emberAtk, neuFoe, 200, 1, 'shot');
+    H.dealDamage(emberAtk, resFoe, 200, 1, 'shot');
+    H.Math.random = realRandom;
+    const advDmg = 100000 - advFoe.hp, neuDmg = 100000 - neuFoe.hp, resDmg = 100000 - resFoe.hp;
+    assert(advDmg > neuDmg, `advantaged damage (${advDmg}) should exceed neutral damage (${neuDmg})`);
+    assert(neuDmg > resDmg, `neutral damage (${neuDmg}) should exceed resisted damage (${resDmg})`);
+
+    // -- the affinity rule is shared by duel mode too (a core dealDamage rule, not campaign-only) --
+    H.B.modeType = 'duel';
+    H.Math.random = () => 0.5;   // keep every Dragon() construction (incl. its rand() flap draw) off the seeded stream
+    const dmgDuel = (() => {
+      const atk = new H.Dragon('ember', 6, false, 300), def = new H.Dragon('terra', 6, false, 900);
+      def.el = 'Toxin'; def.hp = def.maxhp = 100000;
+      H.dealDamage(atk, def, 200, 1, 'shot');
+      return 100000 - def.hp;
+    })();
+    const dmgDuelNeutral = (() => {
+      const atk = new H.Dragon('ember', 6, false, 300), def = new H.Dragon('terra', 6, false, 900);
+      def.hp = def.maxhp = 100000;
+      H.dealDamage(atk, def, 200, 1, 'shot');
+      return 100000 - def.hp;
+    })();
+    H.Math.random = realRandom;
+    assert(dmgDuel > dmgDuelNeutral, 'duel mode should share the same elemental affinity rule as campaign');
+
+    // -- bot-vs-bot turn integrity must stay green in a battle with an elemental matchup --
+    H.B.modeType = 'campaign';
+    const sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 4; sv.stage = 3; sv.exp = 0;
+    H.startBattle(3);
+    let B = H.B;
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `battle with elemental matchups did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 2, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
     clearTimers();
   });

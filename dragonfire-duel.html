@@ -38,7 +38,10 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 .plate .row1{display:flex;align-items:center;gap:8px;margin-bottom:5px}
 .swatch{width:26px;height:26px;border-radius:50%;border:2px solid rgba(255,255,255,.5);flex:none;box-shadow:0 0 10px rgba(0,0,0,.5) inset}
 .pname{font-family:var(--disp);font-weight:800;font-size:15px;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.plv{margin-left:auto;font-size:11px;color:var(--gold);font-weight:700;white-space:nowrap}
+.aff{margin-left:auto;font-size:12px;white-space:nowrap}
+.aff.adv{color:#6ee87a}
+.aff.res{color:#8fa3c9}
+.plv{font-size:11px;color:var(--gold);font-weight:700;white-space:nowrap}
 .bar{position:relative;height:13px;border-radius:7px;background:#0a0f1d;border:1px solid #000;overflow:hidden;margin-top:4px}
 .bar .fill{position:absolute;inset:0;width:100%;border-radius:6px;transition:width .25s ease}
 .bar.hp .fill{background:linear-gradient(180deg,#8df091,var(--hp) 55%,#2f9b3c)}
@@ -214,13 +217,13 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
   <!-- battle HUD -->
   <div id="hud" class="hidden">
     <div class="plate" id="plateP">
-      <div class="row1"><div class="swatch" id="ppSwatch"></div><div class="pname" id="ppName">—</div><div class="plv" id="ppLv">Lv 1</div></div>
+      <div class="row1"><div class="swatch" id="ppSwatch"></div><div class="pname" id="ppName">—</div><div class="aff" id="ppAff"></div><div class="plv" id="ppLv">Lv 1</div></div>
       <div class="bar hp"><div class="fill" id="ppHp"></div><div class="txt" id="ppHpT"></div></div>
       <div class="bar mp"><div class="fill" id="ppMp"></div><div class="txt" id="ppMpT"></div></div>
       <div class="status" id="ppStatus"></div>
     </div>
     <div class="plate" id="plateE">
-      <div class="row1"><div class="swatch" id="epSwatch"></div><div class="pname" id="epName">—</div><div class="plv" id="epLv">Lv 1</div></div>
+      <div class="row1"><div class="swatch" id="epSwatch"></div><div class="pname" id="epName">—</div><div class="aff" id="epAff"></div><div class="plv" id="epLv">Lv 1</div></div>
       <div class="bar hp"><div class="fill" id="epHp"></div><div class="txt" id="epHpT"></div></div>
       <div class="bar mp"><div class="fill" id="epMp"></div><div class="txt" id="epMpT"></div></div>
       <div class="status" id="epStatus"></div>
@@ -466,6 +469,19 @@ const DRAGONS={
 // and enrage once below ENRAGE_HP_PCT — see Dragon.enraged / dealDamage / aiThink.
 const ALPHA_TITLES={ember:'Cindermaw',frost:'Glacierfang',volt:'Stormcrown',terra:'Quakehide',dusk:'Nightgorge',venom:'Plaguewing'};
 const ENRAGE_HP_PCT=0.4, ENRAGE_ATK_MULT=1.18;
+// Element wheel: each element is strong vs the next entry and weak vs the previous one
+// (cyclic, so every element has exactly one favorable and one unfavorable matchup).
+const ELEMENT_ORDER=['Fire','Toxin','Thunder','Ice','Earth','Shadow'];
+const ELEMENT_ICON={Fire:'🔥',Toxin:'☠',Thunder:'⚡',Ice:'❄',Earth:'🪨',Shadow:'🌑'};
+const ELEM_ADV=1.2, ELEM_RES=0.85;
+function elRel(selfEl,oppEl){
+  const i=ELEMENT_ORDER.indexOf(selfEl);
+  if(i<0||selfEl===oppEl)return 'neu';
+  if(ELEMENT_ORDER[(i+1)%6]===oppEl)return 'adv';
+  if(ELEMENT_ORDER[(i+5)%6]===oppEl)return 'res';
+  return 'neu';
+}
+function elMult(selfEl,oppEl){ const r=elRel(selfEl,oppEl); return r==='adv'?ELEM_ADV:r==='res'?ELEM_RES:1; }
 const SKILL_KEYS=k=>['shot','twin','mega','heal','shield',DRAGONS[k].uniq[0],DRAGONS[k].uniq[1]];
 const statsAt=(key,lvl)=>{const D=DRAGONS[key],b=D.base,g=D.grow,n=lvl-1;return{
   hp:Math.round(b.hp+g.hp*n), atk:Math.round(b.atk+g.atk*n), def:Math.round(b.def+g.def*n),
@@ -797,6 +813,7 @@ class Dragon{
   constructor(key,level,isAI,x,alpha=false){
     this.key=key; this.level=level; this.isAI=isAI; this.alpha=alpha;
     const D=DRAGONS[key], st=statsAt(key,level);
+    this.el=D.el;
     const handicap=(isAI&&level<=1)?0.85:1;
     this.maxhp=Math.round(st.hp*handicap*(alpha?1.18:1));
     this.hp=this.maxhp;
@@ -1023,8 +1040,9 @@ function startBattle(stage){
   enterBattleUI('Stage '+stage+(alpha?' ★ '+B.e.name:'')+' · '+curBiome.name);
   camSnap(B.p.x,B.p.y-120);
   setTimeout(()=>startTurn(B.p),700);
-  if(alpha)setTimeout(()=>announce(B.e.name+' — Alpha boss. Enrages below 40% HP!'),1400);
-  if(!B.hinted){B.hinted=true; setTimeout(()=>announce('Drag back from your dragon to slingshot — or hold FIRE.'),alpha?3200:1600);}
+  announceMatchup(1000);
+  if(alpha)setTimeout(()=>announce(B.e.name+' — Alpha boss. Enrages below 40% HP!'),1700);
+  if(!B.hinted){B.hinted=true; setTimeout(()=>announce('Drag back from your dragon to slingshot — or hold FIRE.'),alpha?3400:1800);}
 }
 function startDuel(k1,k2){
   B.mode='battle'; B.modeType='duel'; B.stage=0; B.state='idle'; B.duelKeys=[k1,k2];
@@ -1039,6 +1057,15 @@ function startDuel(k1,k2){
   enterBattleUI('Duel · '+curBiome.name);
   camSnap(B.p.x,B.p.y-120);
   setTimeout(()=>startTurn(B.p),700);
+  announceMatchup(1000);
+}
+function announceMatchup(delay){
+  const rel=elRel(B.p.el,B.e.el);
+  if(rel==='neu')return;
+  const msg=rel==='adv'
+    ?B.p.el+' is strong against '+B.e.el+'!'
+    :B.p.el+' is weak against '+B.e.el+'…';
+  setTimeout(()=>announce(msg),delay);
 }
 
 function startTurn(d){
@@ -1191,6 +1218,8 @@ function dealDamage(att,tgt,base,falloff,skillKey){
   const attAtk=effectiveAtk(att);
   const ratio=(attAtk*2)/(attAtk+tgt.def);
   let dmg=base*ratio*falloff*rand(0.92,1.08);
+  const elRelation=(tgt!==att)?elRel(att.el,tgt.el):'neu';
+  if(elRelation!=='neu')dmg*=elMult(att.el,tgt.el);
   let crit=false;
   if(tgt!==att && Math.random()*100 < 5+att.luk*0.4){crit=true; dmg*=1.5;}
   if(tgt.status.shield>0){
@@ -1200,6 +1229,8 @@ function dealDamage(att,tgt,base,falloff,skillKey){
   dmg=Math.max(1,Math.round(dmg));
   tgt.hp=Math.max(0,tgt.hp-dmg);
   tgt.hurtT=.45; tgt.fallFrom=tgt.y; tgt.vy=-2.6; tgt.air=true; tgt.y-=1.2;
+  if(elRelation==='adv')floatTxt(tgt.x,tgt.y-104,'Effective!','#ffcf5c');
+  else if(elRelation==='res')floatTxt(tgt.x,tgt.y-104,'Resisted','#8fa3c9');
   floatTxt(tgt.x,tgt.y-86,(crit?'CRIT −':'−')+dmg, tgt===B.p?'#ff5a4d':'#ffd23f', crit);
   crit?sfx.crit():sfx.hit();
   if(tgt.alpha&&!tgt.enraged&&tgt.hp>0&&tgt.hp<=tgt.maxhp*ENRAGE_HP_PCT){
@@ -1963,10 +1994,13 @@ function update(dt){
   aiUpdate(dt);
   syncHUD();
 }
-function setPlate(pre,d,suffix){
+function setPlate(pre,d,suffix,opp){
   $(pre+'Swatch').style.background='radial-gradient(circle at 32% 30%,'+d.belly+','+d.col+' 55%,'+d.col2+')';
-  $(pre+'Name').textContent=d.name+(suffix||'');
+  $(pre+'Name').textContent=(ELEMENT_ICON[d.el]||'')+' '+d.name+(suffix||'');
   $(pre+'Lv').textContent='Lv '+d.level;
+  const affEl=$(pre+'Aff'), rel=opp?elRel(d.el,opp.el):'neu';
+  affEl.className='aff'+(rel!=='neu'?' '+rel:'');
+  affEl.textContent=rel==='adv'?'▲':rel==='res'?'▼':'';
   const hf=$(pre+'Hp'); hf.style.width=clamp(d.hp/d.maxhp*100,0,100)+'%';
   hf.classList.toggle('low',d.hp<d.maxhp*0.3);
   $(pre+'HpT').textContent=d.hp+' / '+d.maxhp;
@@ -1982,8 +2016,8 @@ function setPlate(pre,d,suffix){
 }
 function syncHUD(){
   const duel=B.modeType==='duel';
-  setPlate('pp',B.p,duel?' · P1':'');
-  setPlate('ep',B.e,duel?' · P2':'');
+  setPlate('pp',B.p,duel?' · P1':'',B.e);
+  setPlate('ep',B.e,duel?' · P2':'',B.p);
   const wmag=Math.abs(B.wind)/WIND_MAX, dir=B.wind>=0?1:-1;
   $('windVal').textContent='WIND '+windTxt(B.wind);
   const cloth=$('flagCloth');
