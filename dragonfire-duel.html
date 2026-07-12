@@ -88,7 +88,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 #stamWrap{width:110px;height:7px;border-radius:4px;background:#0a0f1d;border:1px solid #000;overflow:hidden}
 #stamFill{height:100%;width:100%;background:linear-gradient(90deg,#ffe27a,#ffb13d);transition:width .12s}
 
-#itemCtl{display:flex;gap:6px}
+#itemCtl{display:flex;flex-wrap:wrap;gap:6px;width:110px}
 .itemBtn{position:relative;width:50px;height:50px;font-size:19px;border-radius:12px}
 .itemBtn .cnt{position:absolute;right:-5px;top:-7px;background:var(--gold);color:#3a2a00;font-size:11px;font-weight:900;
   border-radius:9px;padding:0 6px;border:1.5px solid #fff3;font-family:var(--body)}
@@ -243,6 +243,8 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
         <div id="itemCtl">
           <button class="itemBtn clicky" id="btnItemHp" title="HP potion">🧪<span class="cnt" id="cntHp">0</span></button>
           <button class="itemBtn clicky" id="btnItemMp" title="MP potion">🔮<span class="cnt" id="cntMp">0</span></button>
+          <button class="itemBtn clicky" id="btnItemCalm" title="Calm Wind — zeroes wind this turn">🍃<span class="cnt" id="cntCalm">0</span></button>
+          <button class="itemBtn clicky" id="btnItemSurge" title="Overcharge — next shot deals +30% damage">💥<span class="cnt" id="cntSurge">0</span></button>
         </div>
         <div id="moveCtl">
           <button id="btnLeft" class="clicky">◀</button><button id="btnRight" class="clicky">▶</button>
@@ -355,6 +357,9 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <div class="shopHead">Battle items</div>
     <div class="shopRow"><div class="ic">🧪</div><div class="inf"><b>HP Potion</b><span>Restores 35% HP in battle. Doesn't end your turn. Max 3.</span></div><button id="buyHp">150g</button></div>
     <div class="shopRow"><div class="ic">🔮</div><div class="inf"><b>MP Potion</b><span>Restores 40 MP in battle. Doesn't end your turn. Max 3.</span></div><button id="buyMp">100g</button></div>
+    <div class="shopHead">Amplifiers — bend one shot, don't end your turn</div>
+    <div class="shopRow"><div class="ic">🍃</div><div class="inf"><b>Calm Wind</b><span>Zeroes the wind for this turn's shot. Doesn't end your turn. Max 2.</span></div><button id="buyCalm">120g</button></div>
+    <div class="shopRow"><div class="ic">💥</div><div class="inf"><b>Overcharge</b><span>Your next shot this turn deals +30% damage. Doesn't end your turn. Max 2.</span></div><button id="buySurge">160g</button></div>
     <div class="shopHead">Gear — permanent (campaign)</div>
     <div id="gearRows"></div>
     <div class="rowBtns"><button class="bigBtn" id="btnShopClose" style="font-size:14px;padding:10px 26px">Close</button></div>
@@ -382,6 +387,8 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
       Skills cost MP (+14 regained per turn). Each dragon has <b>two signature skills</b> — the second unlocks at level 4: life-stealing boomerangs, freezing slabs, splitting meteors, sky bolts, bouncing stones, poison clouds, walls of ice, even a shadow-step escape.
       <div class="sec">Gear & stats</div>
       The shop sells permanent gear: <b>ATK</b> raises damage · <b>DEF</b> lowers damage taken · <b>AGI</b> extends stamina · <b>LUK</b> raises crit chance.
+      <div class="sec">Amplifiers</div>
+      Shop-bought one-shot items that bend a single turn, just like potions: 🍃 <b>Calm Wind</b> zeroes the wind for this turn's shot, 💥 <b>Overcharge</b> adds +30% damage to your next shot. Neither ends your turn.
     </div>
     <div class="rowBtns"><button class="bigBtn" id="btnHelpClose" style="font-size:14px;padding:10px 26px">Close</button></div>
   </div></div>
@@ -482,6 +489,8 @@ function elRel(selfEl,oppEl){
   return 'neu';
 }
 function elMult(selfEl,oppEl){ const r=elRel(selfEl,oppEl); return r==='adv'?ELEM_ADV:r==='res'?ELEM_RES:1; }
+// Battle amplifiers: one-shot tactical items that bend a single turn's shot without ending it.
+const AMP_SURGE_MULT=1.3;
 const SKILL_KEYS=k=>['shot','twin','mega','heal','shield',DRAGONS[k].uniq[0],DRAGONS[k].uniq[1]];
 const statsAt=(key,lvl)=>{const D=DRAGONS[key],b=D.base,g=D.grow,n=lvl-1;return{
   hp:Math.round(b.hp+g.hp*n), atk:Math.round(b.atk+g.atk*n), def:Math.round(b.def+g.def*n),
@@ -518,7 +527,7 @@ const BIOME_ORDER=['meadow','cinder','tundra'];
 
 /* ---------- persistent save ---------- */
 function blankRecord(){ return {wins:0,losses:0,alphaWins:0,bestStage:1,lifeGold:0,lifeExp:0}; }
-let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},gear:{fang:0,scale:0,charm:0,talon:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{}};
+let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0},gear:{fang:0,scale:0,charm:0,talon:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{}};
 const SAVE_KEY='dragonfire-duel-save';
 let storageOK=false;
 async function loadSave(){
@@ -528,7 +537,10 @@ async function loadSave(){
       if(typeof save.gear.talon!=='number')save.gear.talon=0;
       if(!save.record)save.record=blankRecord();
       if(typeof save.skillPts!=='number')save.skillPts=0;
-      if(!save.skillUpg)save.skillUpg={};}}
+      if(!save.skillUpg)save.skillUpg={};
+      if(!save.amps)save.amps={calm:0,surge:0};
+      if(typeof save.amps.calm!=='number')save.amps.calm=0;
+      if(typeof save.amps.surge!=='number')save.amps.surge=0;}}
     storageOK=true;
   }catch(e){ storageOK=(typeof window.storage!=='undefined'); }
 }
@@ -537,7 +549,7 @@ function persist(){
   try{ window.storage.set(SAVE_KEY,JSON.stringify(save)).catch(()=>{}); }catch(e){}
 }
 async function wipeSave(){
-  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},gear:{fang:0,scale:0,charm:0,talon:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{}};
+  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0},gear:{fang:0,scale:0,charm:0,talon:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{}};
   try{ await window.storage.delete(SAVE_KEY);}catch(e){}
 }
 
@@ -921,9 +933,9 @@ const PCOL={
   toxin:['#b9e84a','#e9ffc0'], miasma:['#9fd435','#dcffa0'], meteor:['#ffb35e','#fff7e8'], meteorSub:['#ff9a4d','#fff1d0']
 };
 class Proj{
-  constructor(owner,skillKey,angDeg,pow,ov){
+  constructor(owner,skillKey,angDeg,pow,ov,amp){
     const sk=SKILLS[skillKey];
-    this.owner=owner; this.skillKey=skillKey; this.sk=sk;
+    this.owner=owner; this.skillKey=skillKey; this.sk=sk; this.amp=!!amp;
     if(ov){ this.x=ov.x; this.y=ov.y; this.vx=ov.vx; this.vy=ov.vy; this.isSub=true; }
     else{
       const m=owner.mouth(); this.x=m.x; this.y=m.y;
@@ -1002,7 +1014,7 @@ class Proj{
    ===================================================================== */
 const B={mode:'title',modeType:'campaign',state:'idle',stage:1,p:null,e:null,active:null,wind:0,
   aim:{ang:45,pow:0,charging:false,skill:'shot'},
-  queue:[],projs:[],zones:[],usedItem:{hp:false,mp:false},aiPlan:null,turnNo:0,hinted:false,duelKeys:null};
+  queue:[],projs:[],zones:[],usedItem:{hp:false,mp:false,calm:false,surge:false},ampSurge:false,aiPlan:null,turnNo:0,hinted:false,duelKeys:null};
 const other=d=>d===B.p?B.e:B.p;
 
 function rollWind(){ B.wind=rand(-WIND_MAX,WIND_MAX); }
@@ -1070,7 +1082,7 @@ function announceMatchup(delay){
 
 function startTurn(d){
   if(B.mode!=='battle'||!(B.state==='idle'||B.state==='settle'))return;
-  B.turnNo++; B.active=d; rollWind();
+  B.turnNo++; B.active=d; rollWind(); B.ampSurge=false;
   resetInput(); B.aim.charging=false; B.aim.pow=0;
   d.stamina=d.maxstam;
   d.facing=(other(d).x>d.x)?1:-1;
@@ -1106,7 +1118,7 @@ function startTurn(d){
   d.mp=Math.min(d.maxmp,d.mp+14);
   camFocus(d.x,d.y-110);
   if(!d.isAI){
-    if(B.modeType==='campaign')B.usedItem={hp:false,mp:false};
+    if(B.modeType==='campaign')B.usedItem={hp:false,mp:false,calm:false,surge:false};
     B.aim.pow=0; B.aim.charging=false;
     if(d.lastShot)B.aim.ang=d.lastShot.ang;
     buildSkillbar(d);
@@ -1150,17 +1162,18 @@ function castInstant(d,key){
 function fire(d,skillKey,ang,pow){
   const sk=SKILLS[skillKey]; if(d.mp<sk.cost)return;
   d.mp-=sk.cost;
+  const amped=(d===B.p&&B.ampSurge); if(amped)B.ampSurge=false;
   d.lastShot={ang:Math.round(ang),pow:Math.round(pow),wind:B.wind,skillKey};
-  if(sk.cost>0)announce(d.name+' used '+sk.name+'!');
+  if(sk.cost>0)announce(d.name+' used '+sk.name+'!'+(amped?' Overcharged!':''));
   B.state='anim'; B.aim.charging=false;
   B.queue=[];
   const n=sk.shots||1;
-  for(let i=0;i<n;i++)B.queue.push({d,skillKey,ang:clamp(ang+(i?rand(-3,3):0),3,88),pow});
+  for(let i=0;i<n;i++)B.queue.push({d,skillKey,ang:clamp(ang+(i?rand(-3,3):0),3,88),pow,amp:amped});
   launchNext();
 }
 function launchNext(){
   const s=B.queue.shift(); if(!s)return;
-  B.projs.push(new Proj(s.d,s.skillKey,s.ang||0,s.pow||0,s.ov||null));
+  B.projs.push(new Proj(s.d,s.skillKey,s.ang||0,s.pow||0,s.ov||null,s.amp));
   sfx.shoot();
   if(!s.ov){ s.d.castT=.3;
     const pr=B.projs[B.projs.length-1];
@@ -1172,7 +1185,7 @@ function splitCluster(pr){
   const mults=[0.55,1,1.45];
   for(let i=0;i<3;i++){
     B.projs.push(new Proj(pr.owner,'meteorSub',0,0,
-      {x:pr.x+(i-1)*10, y:pr.y, vx:pr.vx*mults[i], vy:pr.vy*0.5+i*0.5}));
+      {x:pr.x+(i-1)*10, y:pr.y, vx:pr.vx*mults[i], vy:pr.vy*0.5+i*0.5},pr.amp));
   }
 }
 
@@ -1192,20 +1205,20 @@ function explode(x,y,proj){
     const dist=Math.hypot(t.x-x,(t.y-24)-y);
     if(dist>r+DRAGON_R)continue;
     const fall=dist<=DRAGON_R+6?1:clamp(1-(dist-DRAGON_R)/r,0,1)*0.7+0.3;
-    dealDamage(proj.owner,t,sk.base*skillMult(proj.owner,proj.skillKey),fall,proj.skillKey);
+    dealDamage(proj.owner,t,sk.base*skillMult(proj.owner,proj.skillKey)*ampMult(proj.amp),fall,proj.skillKey);
   }
   for(let i=obstacles.length-1;i>=0;i--){
     const o=obstacles[i], dist=Math.hypot(o.x-x,o.y-y);
     if(dist>r+o.r)continue;
     const fall=clamp(1-(dist-o.r)/r,0.3,1);
-    damageObstacle(o,sk.base*fall*skillMult(proj.owner,proj.skillKey));
+    damageObstacle(o,sk.base*fall*skillMult(proj.owner,proj.skillKey)*ampMult(proj.amp));
   }
   if(sk.zone){
     B.zones.push({x, y:Math.min(y,groundAt(x))-14, r:sk.zone.r, turns:sk.zone.turns, pct:sk.zone.pct, owner:proj.owner});
     floatTxt(x,y-40,'Miasma settles…','#cdf06a');
   }
   if(sk.sky&&!proj.isSub){
-    B.queue.push({d:proj.owner, skillKey:'chainSub', ov:{x:x+rand(-10,10), y:Math.max(70,y-460), vx:0, vy:13}});
+    B.queue.push({d:proj.owner, skillKey:'chainSub', ov:{x:x+rand(-10,10), y:Math.max(70,y-460), vx:0, vy:13}, amp:proj.amp});
   }
 }
 // Trained skill tiers (Den > Skills) only apply to the player's own dragon in campaign.
@@ -1213,6 +1226,7 @@ function skillMult(owner,key){
   if(owner.isAI||B.modeType!=='campaign')return 1;
   return 1+(save.skillUpg[key]||0)*0.10;
 }
+function ampMult(flag){ return flag?AMP_SURGE_MULT:1; }
 function effectiveAtk(d){ return d.enraged?Math.round(d.atk*ENRAGE_ATK_MULT):d.atk; }
 function dealDamage(att,tgt,base,falloff,skillKey){
   const attAtk=effectiveAtk(att);
@@ -1563,6 +1577,19 @@ function useItem(kind){
 $('btnItemHp').addEventListener('click',()=>useItem('hp'));
 $('btnItemMp').addEventListener('click',()=>useItem('mp'));
 
+function useAmp(kind){
+  if(B.modeType!=='campaign'||!canAct()||B.active!==B.p)return;
+  if(B.usedItem[kind]||save.amps[kind]<=0)return;
+  if(kind==='calm'){
+    B.wind=0; floatTxt(B.p.x,B.p.y-84,'Wind calmed!','#bfe9ff'); sfx.whirl();
+  }else{
+    B.ampSurge=true; floatTxt(B.p.x,B.p.y-84,'Overcharged!','#ffd23f'); sfx.crit();
+  }
+  save.amps[kind]--; B.usedItem[kind]=true; persist();
+}
+$('btnItemCalm').addEventListener('click',()=>useAmp('calm'));
+$('btnItemSurge').addEventListener('click',()=>useAmp('surge'));
+
 /* ---------- modals, shop, screens ---------- */
 function showModal(id){hideModals(); $(id).classList.remove('hidden');}
 function hideModals(){document.querySelectorAll('.modal').forEach(m=>m.classList.add('hidden'));}
@@ -1572,6 +1599,9 @@ function refreshShop(){
   const bh=$('buyHp'), bm=$('buyMp');
   bh.textContent=save.potions.hp>=3?'MAX':'150g'; bh.disabled=save.potions.hp>=3||save.gold<150;
   bm.textContent=save.potions.mp>=3?'MAX':'100g'; bm.disabled=save.potions.mp>=3||save.gold<100;
+  const bc=$('buyCalm'), bs=$('buySurge');
+  bc.textContent=save.amps.calm>=2?'MAX':'120g'; bc.disabled=save.amps.calm>=2||save.gold<120;
+  bs.textContent=save.amps.surge>=2?'MAX':'160g'; bs.disabled=save.amps.surge>=2||save.gold<160;
   const wrap=$('gearRows'); wrap.innerHTML='';
   for(const k of Object.keys(GEAR)){
     const g=GEAR[k], tier=save.gear[k]||0, maxed=tier>=3;
@@ -1595,6 +1625,12 @@ function buyPotion(kind,cost){
 }
 $('buyHp').addEventListener('click',()=>buyPotion('hp',150));
 $('buyMp').addEventListener('click',()=>buyPotion('mp',100));
+function buyAmp(kind,cost){
+  if(save.amps[kind]>=2||save.gold<cost)return;
+  save.gold-=cost; save.amps[kind]++; persist(); sfx.heal(); refreshShop();
+}
+$('buyCalm').addEventListener('click',()=>buyAmp('calm',120));
+$('buySurge').addEventListener('click',()=>buyAmp('surge',160));
 $('btnShopV').addEventListener('click',()=>{shopReturn='mVictory'; refreshShop(); showModal('mShop');});
 $('btnShopT').addEventListener('click',()=>{shopReturn='title'; refreshShop(); showModal('mShop');});
 $('btnDenShop').addEventListener('click',()=>{sfx.click(); shopReturn='den'; refreshShop(); showModal('mShop');});
@@ -2040,6 +2076,9 @@ function syncHUD(){
   $('cntHp').textContent=save.potions.hp; $('cntMp').textContent=save.potions.mp;
   $('btnItemHp').disabled=!itemsOn||B.usedItem.hp||save.potions.hp<=0;
   $('btnItemMp').disabled=!itemsOn||B.usedItem.mp||save.potions.mp<=0;
+  $('cntCalm').textContent=save.amps.calm; $('cntSurge').textContent=save.amps.surge;
+  $('btnItemCalm').disabled=!itemsOn||B.usedItem.calm||save.amps.calm<=0;
+  $('btnItemSurge').disabled=!itemsOn||B.usedItem.surge||save.amps.surge<=0;
   const can=canAct();
   ['btnLeft','btnRight','btnAngUp','btnAngDown','btnFire'].forEach(id=>$(id).disabled=!can);
   const actor=(B.active&&!B.active.isAI)?B.active:B.p;

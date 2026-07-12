@@ -198,7 +198,7 @@ function loadGame() {
       persist, loadSave, wipeSave, ladderWindow, refreshDen, BIOME_ORDER, blankRecord,
       castInstant, skillMult, refreshSkills, SKILL_KEYS, refreshShop,
       dealDamage, effectiveAtk, ALPHA_TITLES, ENRAGE_HP_PCT, ENRAGE_ATK_MULT, Math,
-      elRel, elMult, ELEMENT_ORDER
+      elRel, elMult, ELEMENT_ORDER, ampMult, AMP_SURGE_MULT
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -677,6 +677,105 @@ const flush = () => new Promise((r) => setImmediate(r));
     }
     assert(B.state === 'over', `battle with elemental matchups did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
     assert(turnsSeen >= 2, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    clearTimers();
+  });
+
+  await test('battle amplifiers: buyable and capped, one-per-turn without ending it, change the armed shot (wind / damage), and persist', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 3; sv.stage = 2; sv.gold = 1000; sv.amps = { calm: 0, surge: 0 };
+    H.B.modeType = 'campaign';
+
+    // -- buyable in the shop, capped at 2 ---------------------------------------
+    H.refreshShop();
+    const buyCalm = document.getElementById('buyCalm'), buySurge = document.getElementById('buySurge');
+    assert(buyCalm.textContent === '120g' && !buyCalm.disabled, 'Calm Wind should be buyable at 120g with gold to spare');
+    buyCalm.click(); buyCalm.click();
+    assert(sv.amps.calm === 2, `buying Calm Wind twice should reach the cap (got ${sv.amps.calm})`);
+    H.refreshShop();
+    assert(buyCalm.textContent === 'MAX' && buyCalm.disabled, 'Calm Wind should show MAX and disable once capped');
+    buySurge.click(); buySurge.click();
+    assert(sv.amps.surge === 2, `buying Overcharge twice should reach the cap (got ${sv.amps.surge})`);
+
+    // -- persistence -------------------------------------------------------------
+    H.persist();
+    sv.amps = { calm: 0, surge: 0 };
+    await H.loadSave();
+    assert(sv.amps.calm === 2 && sv.amps.surge === 2, `amplifier counts should survive save/load (got calm ${sv.amps.calm}, surge ${sv.amps.surge})`);
+
+    // -- in battle: using one doesn't end the turn, and each is capped at once per turn --
+    sv.stage = 2;
+    H.startBattle(2);
+    let B = H.B;
+    let guard = 0;
+    while (B.state !== 'aim' && guard < 200) { tick(16); guard++; }
+    assert(B.state === 'aim' && B.active === B.p, 'the player should be aiming at the top of their turn');
+
+    B.wind = 0.03;
+    const btnCalm = document.getElementById('btnItemCalm');
+    btnCalm.click();
+    assert(B.wind === 0, `Calm Wind should zero the wind (got ${B.wind})`);
+    assert(B.state === 'aim' && B.active === B.p, 'using an amplifier must not end the turn');
+    assert(sv.amps.calm === 1, `using Calm Wind should consume one charge (got ${sv.amps.calm})`);
+    assert(B.usedItem.calm === true, 'Calm Wind should be marked used for this turn');
+    B.wind = 0.03;
+    btnCalm.click();
+    assert(B.wind === 0.03 && sv.amps.calm === 1, 'a second Calm Wind use on the same turn should be blocked even with charges left');
+
+    const btnSurge = document.getElementById('btnItemSurge');
+    assert(B.ampSurge === false, 'Overcharge should not start armed');
+    btnSurge.click();
+    assert(B.ampSurge === true, 'Overcharge should arm after use');
+    assert(B.state === 'aim' && B.active === B.p, 'arming Overcharge must not end the turn');
+    assert(sv.amps.surge === 1, `arming Overcharge should consume one charge (got ${sv.amps.surge})`);
+
+    // -- the armed shot actually carries the amp flag through to its projectile --
+    const d = B.p;
+    d.mp = 100;
+    H.fire(d, 'shot', 45, 70);
+    assert(B.ampSurge === false, 'firing should consume the armed Overcharge');
+    assert(B.projs.length > 0 && B.projs[0].amp === true, "the fired shot's projectile should carry the amp flag");
+    clearTimers();
+
+    // -- ampMult resolves the advertised multiplier and changes dealt damage accordingly --
+    assert(H.ampMult(false) === 1, 'an unamped shot should resolve to a 1x multiplier');
+    assert(H.ampMult(true) === H.AMP_SURGE_MULT, `an amped shot should resolve to the advertised multiplier (got ${H.ampMult(true)})`);
+    const realRandom = H.Math.random;
+    H.Math.random = () => 0.5;
+    const attacker = new H.Dragon('ember', 5, false, 300);
+    const foeA = new H.Dragon('terra', 5, true, 900), foeB = new H.Dragon('terra', 5, true, 900);
+    foeA.hp = foeA.maxhp = 100000; foeB.hp = foeB.maxhp = 100000;
+    H.dealDamage(attacker, foeA, 200 * H.ampMult(false), 1, 'shot');
+    H.dealDamage(attacker, foeB, 200 * H.ampMult(true), 1, 'shot');
+    H.Math.random = realRandom;
+    const plainDmg = 100000 - foeA.hp, ampedDmg = 100000 - foeB.hp;
+    assert(ampedDmg > plainDmg, `an Overcharged shot should deal more damage than an unamped one (plain ${plainDmg}, amped ${ampedDmg})`);
+
+    // -- bot-vs-bot turn integrity stays intact when amplifiers are stocked but unused --
+    sv.dragonKey = 'volt'; sv.level = 3; sv.exp = 0; sv.stage = 4; sv.amps = { calm: 2, surge: 2 };
+    H.startBattle(4);
+    B = H.B;
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
     clearTimers();
   });
