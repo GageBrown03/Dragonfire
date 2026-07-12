@@ -201,7 +201,7 @@ one per run).*
     verified by code path and the harness's damage-ordering assertion rather than an
     additional screenshot.
 
-- [ ] **Battle amplifiers (tactical items).** Haypi battles were fought with props, not
+- [x] **Battle amplifiers (tactical items).** Haypi battles were fought with props, not
   just heals — one-shot consumables that bend a single turn.
   - *Intent:* shop-bought consumables that create in-battle decisions: e.g. calm the wind
     for this shot, amplify this shot's damage, reveal the full arc while aiming this
@@ -211,10 +211,36 @@ one per run).*
     allowed to use them, or out of scope?
   - *Extend:* `useItem` / `B.usedItem`, the `itemCtl` dock, the shop modal + `buyPotion`
     pattern, new `save` fields with safe defaults, the aim/trajectory preview in `render`.
+  - *Shipped:* two amplifiers, both following the existing potion pattern exactly (buy in
+    the shop up to a cap of 2, use for free in battle without ending the turn, one use per
+    item per turn via `B.usedItem`): 🍃 **Calm Wind** (`save.amps.calm`, 120g) zeroes
+    `B.wind` for the rest of the current turn; 💥 **Overcharge** (`save.amps.surge`, 160g)
+    arms `B.ampSurge`, which `fire()` reads once (`d===B.p && B.ampSurge`) and stamps onto
+    every projectile of that shot (including multi-shot skills and the sky/cluster
+    sub-shots) as `proj.amp`; `explode()` multiplies `sk.base` by a new `ampMult(proj.amp)`
+    (a flat `AMP_SURGE_MULT=1.3`) alongside the existing `skillMult`, so it composes with
+    trained skill tiers and element affinity rather than replacing them. The AI never uses
+    either (they're gated to `B.active===B.p` in `useAmp`), so it's out of scope by design,
+    matching how trained skill tiers stay player-only. Reused `itemCtl`/`.itemBtn` for the
+    two new buttons (now a 2x2 wrapped dock) and the existing shop-row markup for the two
+    new buy rows. Guessed the 120g/160g prices, the cap of 2 (lower than potions' 3, since
+    they're more build-around-able), and the 30% Overcharge number — a future run could
+    retune once they're played at higher stages.
   - *Done when:* at least two amplifiers are buyable, usable in battle with a visible
     effect on that turn's shot, and persist in the save; harness asserts an amplifier's
     effect applies and is consumed, and that using one does not end the turn (turn
-    integrity intact).
+    integrity intact). **Verified**: harness test 13 drives the real shop buy buttons to
+    cap purchases at 2, round-trips both counts through save/load, drives a real battle to
+    the player's aim state and clicks the real `btnItemCalm`/`btnItemSurge` buttons,
+    asserting `B.wind` zeroes and `B.ampSurge` arms while `B.state` stays `'aim'` (turn not
+    ended) and a same-turn reuse is blocked, confirms a real `fire()` call stamps
+    `proj.amp` onto the queued projectile and consumes the arm, checks `ampMult` resolves
+    to the advertised multiplier and raises `dealDamage`'s resolved output, and drives a
+    full bot-vs-bot campaign battle with amplifiers stocked (but unused by the AI) to
+    completion with strict turn alternation. Also confirmed live in Playwright/Chromium:
+    screenshots show the 2x2 item dock with both new buttons and counts, and after
+    clicking them in a real battle the wind pennant reads "WIND 0" and "Wind calmed!" /
+    "Overcharged!" float text appears, with the turn still active throughout.
 
 - [ ] **Field loot — supply crates.** Haypi's ladder had reward levels and treasure;
   give the battlefield something worth shooting besides the enemy.
