@@ -742,6 +742,43 @@ function drawObstacle(ctx,o){
 }
 
 /* =====================================================================
+   SUPPLY CRATES — destructible, campaign-only, pay out gold on break
+   ===================================================================== */
+const CRATE_CHANCE=0.55;
+let crates=[];
+function makeCrates(stage){
+  crates=[];
+  if(B.modeType!=='campaign'||Math.random()>=CRATE_CHANCE)return;
+  const x=rand(SPAWN_P+240,SPAWN_E-240), r=22;
+  const y=groundAt(x)-r;
+  const hp=45+stage*4, gold=30+stage*8;
+  crates.push({x,y,r,hp,maxhp:hp,gold,bob:rand(0,TAU)});
+}
+function damageCrate(o,dmg){
+  o.hp-=dmg;
+  if(o.hp<=0){
+    const i=crates.indexOf(o); if(i>=0)crates.splice(i,1);
+    burst(o.x,o.y,['#ffd23f','#ffb84d','#ffffff'],24,4,{size:5,life:.9,up:1.6});
+    floatTxt(o.x,o.y-14,'+'+o.gold+' Gold!','#ffd23f',true);
+    sfx.heal();
+    save.gold+=o.gold; persist();
+  }
+}
+function drawCrate(ctx,o){
+  const bobY=o.y+Math.sin(tGlobal*1.4+o.bob)*2;
+  ctx.save(); ctx.translate(o.x,bobY);
+  ctx.fillStyle='#8a5a2e'; ctx.strokeStyle='#4a2f14'; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.rect(-o.r,-o.r,o.r*2,o.r*2); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle='#5d3a1a'; ctx.lineWidth=2.2;
+  ctx.beginPath(); ctx.moveTo(-o.r,-o.r); ctx.lineTo(o.r,o.r); ctx.moveTo(o.r,-o.r); ctx.lineTo(-o.r,o.r); ctx.stroke();
+  ctx.fillStyle='#ffd23f'; ctx.strokeStyle='#a8760a'; ctx.lineWidth=1.6;
+  ctx.beginPath(); ctx.arc(0,0,o.r*.32,0,TAU); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#a8760a'; ctx.font='bold '+(o.r*.4)+'px system-ui'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('$',0,1);
+  ctx.restore();
+}
+
+/* =====================================================================
    CAMERA
    ===================================================================== */
 const cam={x:WORLD.w/2,y:WORLD.h*0.55,tx:WORLD.w/2,ty:WORLD.h*0.55,shake:0,z:1,tz:1};
@@ -969,6 +1006,10 @@ class Proj{
         const dx=this.x-o.x, dy=this.y-o.y;
         if(dx*dx+dy*dy<(o.r+this.r)*(o.r+this.r)) return {x:this.x,y:this.y,kind:'obstacle'};
       }
+      for(const o of crates){
+        const dx=this.x-o.x, dy=this.y-o.y;
+        if(dx*dx+dy*dy<(o.r+this.r)*(o.r+this.r)) return {x:this.x,y:this.y,kind:'crate'};
+      }
       if(this.y>=groundAt(this.x)){
         if(this.bounces>0){
           this.bounces--;
@@ -1025,6 +1066,7 @@ function setupField(biomeKey,stage){
   genTerrain(biomeKey);
   const nObs=clamp(1+Math.floor(stage/3),1,3);
   makeObstacles(nObs,curBiome.obst,stage);
+  makeCrates(stage);
   initAmbient(curBiome.amb);
   B.queue=[]; B.projs=[]; B.zones=[]; B.aiPlan=null; B.turnNo=0;
   parts.length=0; floats.length=0;
@@ -1213,6 +1255,12 @@ function explode(x,y,proj){
     const fall=clamp(1-(dist-o.r)/r,0.3,1);
     damageObstacle(o,sk.base*fall*skillMult(proj.owner,proj.skillKey)*ampMult(proj.amp));
   }
+  for(let i=crates.length-1;i>=0;i--){
+    const o=crates[i], dist=Math.hypot(o.x-x,o.y-y);
+    if(dist>r+o.r)continue;
+    const fall=clamp(1-(dist-o.r)/r,0.3,1);
+    damageCrate(o,sk.base*fall*skillMult(proj.owner,proj.skillKey)*ampMult(proj.amp));
+  }
   if(sk.zone){
     B.zones.push({x, y:Math.min(y,groundAt(x))-14, r:sk.zone.r, turns:sk.zone.turns, pct:sk.zone.pct, owner:proj.owner});
     floatTxt(x,y-40,'Miasma settles…','#cdf06a');
@@ -1347,6 +1395,7 @@ function simShot(me,foe,ang,pow,sk){
     if(o.age>10){const dx=o.x-foe.x,dy=o.y-(foe.y-24); if(dx*dx+dy*dy<(DRAGON_R+6)*(DRAGON_R+6))return{x:o.x,y:o.y};}
     let blocked=false;
     for(const ob of obstacles){const dx=o.x-ob.x,dy=o.y-ob.y; if(dx*dx+dy*dy<(ob.r+6)*(ob.r+6)){blocked=true;break;}}
+    if(!blocked)for(const ob of crates){const dx=o.x-ob.x,dy=o.y-ob.y; if(dx*dx+dy*dy<(ob.r+6)*(ob.r+6)){blocked=true;break;}}
     if(blocked)return{x:o.x,y:o.y};
     if(o.y>=groundAt(o.x)){
       if(bounces>0){bounces--; o.y=groundAt(o.x)-1; o.vy=-Math.abs(o.vy)*0.55; o.vx*=0.82; if(Math.abs(o.vy)<1.6)o.vy=-1.6; continue;}
@@ -1890,6 +1939,7 @@ function render(){
     ctx.beginPath(); ctx.arc(z.x,z.y,z.r,0,TAU); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1;
   }
   for(const o of obstacles)drawObstacle(ctx,o);
+  for(const o of crates)drawCrate(ctx,o);
   if(B.p)B.p.draw(ctx); if(B.e)B.e.draw(ctx);
   if(B.mode==='battle'&&scale<baseScale*0.72){
     for(const d of [B.p,B.e]){

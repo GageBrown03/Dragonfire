@@ -242,7 +242,7 @@ one per run).*
     clicking them in a real battle the wind pennant reads "WIND 0" and "Wind calmed!" /
     "Overcharged!" float text appears, with the turn still active throughout.
 
-- [ ] **Field loot — supply crates.** Haypi's ladder had reward levels and treasure;
+- [x] **Field loot — supply crates.** Haypi's ladder had reward levels and treasure;
   give the battlefield something worth shooting besides the enemy.
   - *Intent:* occasional destructible caches on the field that pay out (gold, a potion)
     to whoever breaks them — a genuine alternative use for a turn.
@@ -250,9 +250,38 @@ one per run).*
     deliberate shot, what happens when the AI breaks one, payout scaling with stage.
   - *Extend:* `makeObstacles` / `obstacles` / `damageObstacle` (a crate is nearly an
     obstacle with a payout), `explode`, `victory`, `save.gold`.
+  - *Shipped:* a new `crates` array parallel to `obstacles`, spawned by `makeCrates(stage)`
+    (called from `setupField` right after `makeObstacles`). It resets every battle and
+    only ever spawns in campaign (`B.modeType==='campaign'`) — duel mode never gets one.
+    Spawn is a coin flip (`CRATE_CHANCE=0.55`) so crates are occasional, not guaranteed,
+    which felt closer to "treasure" than a fixture. One crate at a time, sitting on the
+    ground (not floating like obstacles, so it reads as a distinct, deliberately-aimed-at
+    target) with `hp=45+stage*4` and `gold=30+stage*8`, both scaling gently with stage.
+    Drawn with a new `drawCrate` (a wooden chest with a "$" coin face) alongside
+    `drawObstacle` in the render loop. Damage flows through the same two paths as
+    obstacles: a splash hit in `explode()` (`damageCrate`, same falloff formula as
+    `damageObstacle`, still composed with `skillMult`/`ampMult`) and a direct mid-flight
+    hit in the projectile's `step()`, plus a matching block check in the AI's `simShot`
+    so the AI's trajectory math doesn't diverge from the real physics when a crate sits in
+    the way. Breaking one credits `save.gold` and calls `persist()` immediately (not
+    deferred to `victory()`), so the payout survives even a loss or a quit mid-battle — a
+    gold float ("+NN Gold!") and a coin-colored burst make the payout visible on the spot.
+    Guessed the 55% spawn chance and the flat gold/HP scaling; a future run could add a
+    potion-reward variant or scale spawn odds with stage once loot is played more.
+    Decided whoever breaks it (player shot or AI splash) pays the player, since only the
+    player's save carries a wallet — the AI never targets crates on purpose (out of scope,
+    same call as the tactical items), so this only matters when an AI shot happens to
+    clip one.
   - *Done when:* crates appear in campaign battles and breaking one visibly pays out
     mid-battle and persists after the battle; harness asserts a broken crate credits its
-    reward and the sim still terminates with strict alternation.
+    reward and the sim still terminates with strict alternation. **Verified**: harness
+    test 14 checks spawn gating (forced low/high rolls, campaign vs duel), that
+    `damageCrate` credits gold and survives save/load, that a real `explode()` splash hit
+    breaks a crate and credits its reward, and drives a full bot-vs-bot campaign battle
+    with a forced crate spawn to completion with strict turn alternation. Also confirmed
+    live in Playwright/Chromium: screenshot shows the wooden crate rendered on the
+    battlefield next to an obstacle, and after a real `explode()` hit the crate
+    disappears with a "+54 Gold!" float and `save.gold` moves 50→104.
 
 - [ ] **Hunt scoring.** Haypi graded every level — score each victory and pay for style.
   - *Intent:* after a win, a legible grade (e.g. turns taken, HP kept) with a small

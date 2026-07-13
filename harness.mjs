@@ -198,7 +198,8 @@ function loadGame() {
       persist, loadSave, wipeSave, ladderWindow, refreshDen, BIOME_ORDER, blankRecord,
       castInstant, skillMult, refreshSkills, SKILL_KEYS, refreshShop,
       dealDamage, effectiveAtk, ALPHA_TITLES, ENRAGE_HP_PCT, ENRAGE_ATK_MULT, Math,
-      elRel, elMult, ELEMENT_ORDER, ampMult, AMP_SURGE_MULT
+      elRel, elMult, ELEMENT_ORDER, ampMult, AMP_SURGE_MULT,
+      get crates(){ return crates; }, makeCrates, damageCrate, CRATE_CHANCE, explode
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -775,6 +776,88 @@ const flush = () => new Promise((r) => setImmediate(r));
       }
     }
     assert(B.state === 'over', `battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    clearTimers();
+  });
+
+  await test('field loot: supply crates spawn campaign-only, pay out gold on break, and the bot-vs-bot sim stays green', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+    const realRandom = H.Math.random;
+
+    // -- spawn gating: a low roll spawns a crate in campaign, scaled with stage --
+    H.B.modeType = 'campaign';
+    H.Math.random = () => 0;
+    H.makeCrates(5);
+    assert(H.crates.length === 1, `a low roll under the spawn chance should spawn a crate (got ${H.crates.length})`);
+    const c = H.crates[0];
+    assert(c.hp === 45 + 5 * 4, `crate HP should scale with stage (got ${c.hp})`);
+    assert(c.gold === 30 + 5 * 8, `crate gold reward should scale with stage (got ${c.gold})`);
+
+    // -- a high roll (>= the spawn chance) spawns nothing --
+    H.Math.random = () => 0.99;
+    H.makeCrates(5);
+    assert(H.crates.length === 0, `a roll at/above ${H.CRATE_CHANCE} should not spawn a crate (got ${H.crates.length})`);
+
+    // -- duel mode never spawns crates, even on a guaranteed-spawn roll --
+    H.B.modeType = 'duel';
+    H.Math.random = () => 0;
+    H.makeCrates(5);
+    assert(H.crates.length === 0, `duel mode should never spawn crates (got ${H.crates.length})`);
+    H.Math.random = realRandom;
+
+    // -- breaking a crate pays out gold immediately and persists --
+    H.B.modeType = 'campaign';
+    sv.gold = 100;
+    H.crates.length = 0;
+    H.crates.push({ x: 500, y: 400, r: 22, hp: 40, maxhp: 40, gold: 77, bob: 0 });
+    H.damageCrate(H.crates[0], 999);
+    assert(H.crates.length === 0, 'a broken crate should be removed from the field');
+    assert(sv.gold === 177, `breaking a crate should credit its gold reward (expected 177, got ${sv.gold})`);
+    sv.gold = -1;
+    await H.loadSave();
+    assert(sv.gold === 177, `the crate payout should survive save/load (got ${sv.gold})`);
+
+    // -- a splash explosion (the real combat path) damages and can break a crate --
+    sv.dragonKey = 'ember'; sv.level = 3; sv.stage = 2; sv.gold = 50;
+    H.startBattle(2);
+    let B = H.B;
+    H.crates.length = 0;
+    H.crates.push({ x: B.p.x + 120, y: B.p.y, r: 22, hp: 40, maxhp: 40, gold: 33, bob: 0 });
+    const goldBefore = sv.gold;
+    const fakeProj = { sk: H.SKILLS.shot, owner: B.p, skillKey: 'shot', amp: false, isSub: true };
+    H.explode(B.p.x + 120, B.p.y, fakeProj);
+    assert(H.crates.length === 0, 'a direct-hit explosion should break the crate');
+    assert(sv.gold === goldBefore + 33, `breaking the crate via explode() should credit its gold (expected ${goldBefore + 33}, got ${sv.gold})`);
+    clearTimers();
+
+    // -- bot-vs-bot turn integrity stays intact in a battle with a crate on the field --
+    sv.dragonKey = 'volt'; sv.level = 3; sv.exp = 0; sv.stage = 4;
+    H.Math.random = () => 0;   // force a crate to spawn for this battle
+    H.startBattle(4);
+    H.Math.random = realRandom;
+    B = H.B;
+    assert(H.crates.length === 1, 'the forced-spawn battle should have a crate on the field');
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `battle with a crate on the field did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
     assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
     clearTimers();
