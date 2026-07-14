@@ -283,15 +283,40 @@ one per run).*
     battlefield next to an obstacle, and after a real `explode()` hit the crate
     disappears with a "+54 Gold!" float and `save.gold` moves 50→104.
 
-- [ ] **Hunt scoring.** Haypi graded every level — score each victory and pay for style.
+- [x] **Hunt scoring.** Haypi graded every level — score each victory and pay for style.
   - *Intent:* after a win, a legible grade (e.g. turns taken, HP kept) with a small
     EXP/gold bonus for a clean hunt — pressure toward mastery, not just victory.
   - *Weigh:* 2–3 inputs max; stars vs letter grade; bonus size; is best-grade-per-stage
     worth persisting (feeds the Tier A career record / ladder if they exist by then)?
   - *Extend:* `B.turnNo` (already counted), the `victory` modal, `save` (safe-default
     fields), the career record.
+  - *Shipped:* a letter grade (S/A/B/C) computed by `huntGrade(turns, hpPct)` from exactly
+    two inputs — `B.turnNo` at the kill and the player's HP fraction remaining — blended
+    `hpPct*0.6 + turnScore*0.4` (turnScore full at ≤4 turns, decaying to 0 by 14). Each
+    tier (`HUNT_GRADES`) carries a bonus multiplier on the award (S +25%, A +15%, B +5%, C
+    +0%), applied to both EXP and gold in `victory()` before they're added to `save`. Shown
+    on the victory modal as a new `#vGrade` line ("Hunt Grade S — flawless hunt (+25% bonus
+    applied)", color-coded per tier) directly under the EXP/Gold gains. Went with
+    persisting lifetime counts per grade (`save.record.grades={S,A,B,C}`, extending
+    `blankRecord()`/the existing career record) rather than best-grade-per-stage — simpler,
+    and reads naturally alongside the other lifetime totals already in the Den's record
+    row (now shows e.g. "1S 0A 0B 0C"). Old saves get a safe-default backfill in
+    `loadSave()` if `record.grades` is missing. Duel mode is untouched — `huntGrade` is
+    only called from campaign's `victory()`, never `duelEnd()`.
   - *Done when:* the victory screen shows the grade and the bonus it earned; harness
     asserts the grade computed from a known battle state and that the bonus was added.
+    **Verified**: harness test 15 unit-checks `huntGrade()` at both extremes (fast/full-HP
+    → S with a bonus, slow/near-death → C with none), drives a real `startBattle` +
+    `checkEnd()` win with a forced clean-hunt state and asserts the awarded gold exceeds
+    the un-bonused base, that `save.record.grades.S` incremented, that the victory modal's
+    `#vGrade` text reflects it, that the tally survives save/load, that a rough-win state
+    pays the plain award with no bonus, and drives a full bot-vs-bot campaign battle to
+    completion with strict turn alternation intact. Also confirmed live in
+    Playwright/Chromium: screenshot of the victory modal shows "Hunt Grade S — flawless
+    hunt (+25% bonus applied)" under +96 EXP/+145 Gold, and the Den's record row shows
+    "1S 0A 0B 0C" after returning. Guessed the two-input blend, the score thresholds, and
+    the bonus sizes — a future run could retune once clean hunts are actually chased at
+    higher stages, or extend the grade to factor in gear/amps used.
 
 - [ ] **Side hunts (the Eyrie valve).** Haypi let you re-run levels and train in the
   Eyrie; the ladder needs a grind valve when a wall stage stops the run.
