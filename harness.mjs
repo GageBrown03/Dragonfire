@@ -199,7 +199,8 @@ function loadGame() {
       castInstant, skillMult, refreshSkills, SKILL_KEYS, refreshShop,
       dealDamage, effectiveAtk, ALPHA_TITLES, ENRAGE_HP_PCT, ENRAGE_ATK_MULT, Math,
       elRel, elMult, ELEMENT_ORDER, ampMult, AMP_SURGE_MULT,
-      get crates(){ return crates; }, makeCrates, damageCrate, CRATE_CHANCE, explode
+      get crates(){ return crates; }, makeCrates, damageCrate, CRATE_CHANCE, explode,
+      huntGrade, HUNT_GRADES, $
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -858,6 +859,77 @@ const flush = () => new Promise((r) => setImmediate(r));
       }
     }
     assert(B.state === 'over', `battle with a crate on the field did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    clearTimers();
+  });
+
+  // -- TEST 15: hunt scoring — a post-victory grade with an EXP/gold bonus -----
+  await test('hunt scoring: victory grades the fight from turns/HP kept, pays a bonus for a clean hunt, and persists', async () => {
+    clearTimers();
+    const sv = H.save;
+
+    // -- huntGrade() itself: a fast, undamaged win should grade S; a slow, near-death win should grade C --
+    const clean = H.huntGrade(2, 1);
+    assert(clean.grade === 'S', `a fast win at full HP should grade S (got ${clean.grade})`);
+    assert(clean.bonus > 0, 'grade S should carry a positive bonus');
+    const rough = H.huntGrade(20, 0.02);
+    assert(rough.grade === 'C', `a long win at near-zero HP should grade C (got ${rough.grade})`);
+    assert(rough.bonus === 0, 'grade C should carry no bonus');
+    assert(clean.score > rough.score, 'a clean hunt should score higher than a rough one');
+
+    // -- a real victory() applies the grade's bonus to the awarded EXP/gold and records it --
+    sv.dragonKey = 'ember'; sv.level = 1; sv.exp = 0; sv.gold = 100; sv.stage = 3;
+    H.startBattle(3);
+    let B = H.B;
+    B.turnNo = 2; B.p.hp = B.p.maxhp; B.e.hp = 0;
+    const gold0 = sv.gold, grades0 = sv.record.grades.S;
+    const baseGold = 50 + B.stage * 22;
+    H.checkEnd();
+    assert(B.state === 'over', 'battle ended when the enemy fell');
+    assert(sv.record.grades.S === grades0 + 1, `a clean win should be tallied as an S grade (got ${JSON.stringify(sv.record.grades)})`);
+    assert(sv.gold > gold0 + baseGold, `a clean-hunt bonus should push gold above the unbonused award (base ${baseGold}, gained ${sv.gold - gold0})`);
+    assert(H.$('vGrade').textContent.includes('S'), `the victory modal should show the earned grade (got "${H.$('vGrade').textContent}")`);
+
+    // -- the tallied grade survives save then load --
+    sv.gold = -1;
+    await H.loadSave();
+    assert(sv.record.grades.S === grades0 + 1, 'the grade tally should survive save/load');
+    assert(typeof sv.record.grades.C === 'number', 'other grade buckets should still be present after load');
+    clearTimers();
+
+    // -- a rough win (many turns, low HP) grades low and pays no bonus, without breaking turn integrity --
+    sv.dragonKey = 'ember'; sv.level = 1; sv.exp = 0; sv.gold = 100; sv.stage = 2;
+    H.startBattle(2);
+    B = H.B;
+    B.turnNo = 25; B.p.hp = Math.max(1, Math.round(B.p.maxhp * 0.02)); B.e.hp = 0;
+    const gold1 = sv.gold, baseGold2 = 50 + B.stage * 22;
+    H.checkEnd();
+    assert(sv.gold === gold1 + baseGold2, `a rough win should pay the plain award with no bonus (expected ${baseGold2}, got ${sv.gold - gold1})`);
+    clearTimers();
+
+    // -- bot-vs-bot turn integrity still holds through a battle that ends in a grade + bonus ---
+    sv.dragonKey = 'volt'; sv.level = 3; sv.exp = 0; sv.stage = 4;
+    H.startBattle(4);
+    B = H.B;
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
     assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
     clearTimers();

@@ -181,6 +181,11 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 .box p{font-size:13px;color:var(--mist);line-height:1.55;margin:5px 0}
 .box .gain{font-size:15px;color:var(--bone);font-weight:700;margin:3px 0}
 .box .gain b{color:var(--gold)}
+.box .grade{font-size:13px;font-weight:700;margin:8px 0;letter-spacing:.03em}
+.box .grade-S{color:#ffd23f}
+.box .grade-A{color:#7ee787}
+.box .grade-B{color:#9fc7ff}
+.box .grade-C{color:var(--mist)}
 .box .rowBtns{margin-top:16px}
 .shopRow{display:flex;align-items:center;gap:10px;background:#0a0f1d;border:1px solid var(--line);border-radius:12px;padding:9px 12px;margin:8px 0;text-align:left}
 .shopRow .ic{font-size:22px}
@@ -326,6 +331,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <p id="vSub">The wild dragon retreats.</p>
     <div class="gain" id="vExp">+0 EXP</div>
     <div class="gain" id="vGold">+0 Gold</div>
+    <p class="grade" id="vGrade"></p>
     <p id="vLvl" style="color:var(--gold)"></p>
     <div class="rowBtns">
       <button id="btnShopV">Shop</button>
@@ -526,7 +532,7 @@ const BIOMES={
 const BIOME_ORDER=['meadow','cinder','tundra'];
 
 /* ---------- persistent save ---------- */
-function blankRecord(){ return {wins:0,losses:0,alphaWins:0,bestStage:1,lifeGold:0,lifeExp:0}; }
+function blankRecord(){ return {wins:0,losses:0,alphaWins:0,bestStage:1,lifeGold:0,lifeExp:0,grades:{S:0,A:0,B:0,C:0}}; }
 let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0},gear:{fang:0,scale:0,charm:0,talon:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{}};
 const SAVE_KEY='dragonfire-duel-save';
 let storageOK=false;
@@ -536,6 +542,7 @@ async function loadSave(){
       if(!save.gear)save.gear={fang:0,scale:0,charm:0,talon:0};
       if(typeof save.gear.talon!=='number')save.gear.talon=0;
       if(!save.record)save.record=blankRecord();
+      if(!save.record.grades)save.record.grades={S:0,A:0,B:0,C:0};
       if(typeof save.skillPts!=='number')save.skillPts=0;
       if(!save.skillUpg)save.skillUpg={};
       if(!save.amps)save.amps={calm:0,surge:0};
@@ -1350,12 +1357,27 @@ function deathFX(d){
   burst(d.x,d.y-24,[d.col,d.col2,'#ffffff'],34,5,{up:2,size:6,life:1.1});
   cam.shake=12;
 }
+const HUNT_GRADES=[
+  {grade:'S',min:0.85,bonus:0.25,note:'flawless hunt'},
+  {grade:'A',min:0.65,bonus:0.15,note:'clean hunt'},
+  {grade:'B',min:0.4,bonus:0.05,note:'solid hunt'},
+  {grade:'C',min:0,bonus:0,note:'a win is a win'}
+];
+function huntGrade(turns,hpPct){
+  const turnScore=clamp(1-(turns-4)/10,0,1), score=clamp(hpPct,0,1)*0.6+turnScore*0.4;
+  let g=HUNT_GRADES[HUNT_GRADES.length-1];
+  for(const cand of HUNT_GRADES){ if(score>=cand.min){ g=cand; break; } }
+  return {grade:g.grade,bonus:g.bonus,note:g.note,score};
+}
 function victory(){
   B.state='over'; deathFX(B.e); sfx.win();
   const alpha=B.e.alpha;
-  const exp=35+B.stage*14+(alpha?30:0), gold=50+B.stage*22+(alpha?60:0);
+  const hg=huntGrade(B.turnNo,B.p.hp/B.p.maxhp);
+  const mult=1+hg.bonus;
+  const exp=Math.round((35+B.stage*14+(alpha?30:0))*mult), gold=Math.round((50+B.stage*22+(alpha?60:0))*mult);
   save.exp+=exp; save.gold+=gold;
   save.record.wins++; save.record.lifeExp+=exp; save.record.lifeGold+=gold;
+  save.record.grades[hg.grade]++;
   if(alpha)save.record.alphaWins++;
   save.record.bestStage=Math.max(save.record.bestStage,B.stage);
   let ups=0; while(save.exp>=expNeed(save.level)){save.exp-=expNeed(save.level); save.level++; ups++;}
@@ -1363,6 +1385,8 @@ function victory(){
   if(alpha)save.skillPts+=1; // trophy bonus for felling an alpha, on top of any level-up points
   save.stage=B.stage+1; persist();
   $('vExp').textContent='+'+exp+' EXP'; $('vGold').textContent='+'+gold+' Gold'+(alpha?' + 1 bonus skill point':'');
+  $('vGrade').textContent='Hunt Grade '+hg.grade+' — '+hg.note+(hg.bonus>0?' (+'+Math.round(hg.bonus*100)+'% bonus applied)':'');
+  $('vGrade').className='grade grade-'+hg.grade;
   let lvTxt=ups?('LEVEL UP! Now level '+save.level+' — stats raised, +'+ups+' skill point'+(ups>1?'s':'')+' to spend in the Den.'):'';
   if(ups&&save.level>=4&&save.level-ups<4)lvTxt+=' Second signature skill unlocked!';
   $('vLvl').textContent=lvTxt;
@@ -1769,7 +1793,8 @@ function refreshDen(){
     '<span><b>'+rec.losses+'</b> losses</span>'+
     '<span><b>'+rec.alphaWins+'</b> alphas felled</span>'+
     '<span>best stage <b>'+rec.bestStage+'</b></span>'+
-    '<span><b>'+rec.lifeGold+'g</b> earned</span>';
+    '<span><b>'+rec.lifeGold+'g</b> earned</span>'+
+    '<span title="Hunt grades earned">'+['S','A','B','C'].map(g=>'<b>'+rec.grades[g]+'</b>'+g).join(' ')+'</span>';
   $('denGear').innerHTML=Object.keys(GEAR).map(k=>{
     const g=GEAR[k], tier=save.gear[k]||0;
     return '<span title="'+g.name+'">'+g.ic+' '+g.lbl+' T'+tier+'</span>';
