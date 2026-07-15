@@ -194,13 +194,13 @@ function loadGame() {
       B, get save(){ return save; },
       SKILLS, DRAGONS, GEAR,
       statsAt, expNeed, other,
-      startBattle, startDuel, checkEnd, fire, aiSolve, Dragon,
+      startBattle, startDuel, startSideHunt, checkEnd, fire, aiSolve, Dragon,
       persist, loadSave, wipeSave, ladderWindow, refreshDen, BIOME_ORDER, blankRecord,
       castInstant, skillMult, refreshSkills, SKILL_KEYS, refreshShop,
       dealDamage, effectiveAtk, ALPHA_TITLES, ENRAGE_HP_PCT, ENRAGE_ATK_MULT, Math,
       elRel, elMult, ELEMENT_ORDER, ampMult, AMP_SURGE_MULT,
       get crates(){ return crates; }, makeCrates, damageCrate, CRATE_CHANCE, explode,
-      huntGrade, HUNT_GRADES, $
+      huntGrade, HUNT_GRADES, SIDE_HUNT_MULT, $
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -932,6 +932,75 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(B.state === 'over', `battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
     assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
+    clearTimers();
+  });
+
+  // -- TEST 16: side hunts — off-ladder battle, reduced rewards, stage untouched --
+  await test('side hunts: launchable from the Den, pay reduced rewards, and never advance save.stage', async () => {
+    clearTimers();
+    const sv = H.save;
+
+    // -- driving the real Den button launches a side hunt at the player's own stage --
+    sv.dragonKey = 'ember'; sv.level = 3; sv.exp = 0; sv.gold = 100; sv.stage = 6;
+    H.refreshDen();
+    H.$('btnDenSide').click();
+    let B = H.B;
+    assert(B.mode === 'battle' && B.side === true, 'the Den\'s Side Hunt button should start a side-hunt battle');
+    assert(B.stage === 6, `a side hunt should fight at the player's current stage (expected 6, got ${B.stage})`);
+    assert(!B.e.alpha, 'a side hunt should never spawn an alpha boss');
+
+    // -- winning a side hunt pays a reduced award and leaves save.stage untouched --
+    B.turnNo = 10; B.p.hp = B.p.maxhp; B.e.hp = 0;
+    const stage0 = sv.stage, gold0 = sv.gold, wins0 = sv.record.wins, best0 = sv.record.bestStage;
+    const ladderExp = Math.round(35 + B.stage * 14), ladderGold = Math.round(50 + B.stage * 22);
+    H.checkEnd();
+    assert(B.state === 'over', 'the side-hunt battle ended when the enemy fell');
+    assert(sv.stage === stage0, `a side-hunt win must not advance the stage (was ${stage0}, now ${sv.stage})`);
+    assert(sv.record.bestStage === best0, 'a side-hunt win must not bump the ladder best-stage record');
+    assert(sv.record.wins === wins0 + 1, 'a side-hunt win should still count toward the overall win record');
+    const goldGained = sv.gold - gold0;
+    assert(goldGained > 0 && goldGained < ladderGold, `a side hunt should pay a reduced gold award (ladder base ${ladderGold}, got ${goldGained})`);
+    assert(H.$('vSub').textContent.toLowerCase().includes('side hunt'), 'the victory modal should read as a side hunt');
+    clearTimers();
+
+    // -- a losing side hunt (Retry) restarts as a side hunt, still without touching stage --
+    sv.dragonKey = 'ember'; sv.level = 3; sv.exp = 0; sv.gold = 100; sv.stage = 6;
+    H.startSideHunt();
+    B = H.B;
+    B.p.hp = 0;
+    H.checkEnd();
+    tick(1100);
+    assert(!H.$('mDefeat').classList.contains('hidden'), 'defeat modal should show after a side-hunt loss');
+    H.$('btnRetry').click();
+    assert(H.B.side === true, 'retrying after a side-hunt defeat should relaunch a side hunt, not a ladder battle');
+    assert(sv.stage === 6, 'a side-hunt defeat + retry must never touch save.stage');
+    clearTimers();
+
+    // -- bot-vs-bot turn integrity holds through a full side-hunt battle --
+    sv.dragonKey = 'volt'; sv.level = 4; sv.exp = 0; sv.stage = 7;
+    H.startSideHunt();
+    B = H.B;
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `side-hunt battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    assert(sv.stage === 7, 'a full bot-vs-bot side hunt must still leave save.stage untouched');
     clearTimers();
   });
 

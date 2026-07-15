@@ -319,6 +319,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
       <button class="bigBtn primary" id="btnDenNext" style="font-size:16px;padding:12px 30px">Next Battle ▶</button>
     </div>
     <div class="rowBtns">
+      <button class="subBtn" id="btnDenSide" title="An off-ladder practice fight at your own stage/level — reduced rewards, stage unchanged">Side Hunt</button>
       <button class="subBtn" id="btnDenShop">Shop</button>
       <button class="subBtn" id="btnDenSkills">Skills</button>
       <button class="subBtn" id="btnDenTitle">Title</button>
@@ -1060,7 +1061,7 @@ class Proj{
 /* =====================================================================
    BATTLE STATE
    ===================================================================== */
-const B={mode:'title',modeType:'campaign',state:'idle',stage:1,p:null,e:null,active:null,wind:0,
+const B={mode:'title',modeType:'campaign',state:'idle',stage:1,side:false,p:null,e:null,active:null,wind:0,
   aim:{ang:45,pow:0,charging:false,skill:'shot'},
   queue:[],projs:[],zones:[],usedItem:{hp:false,mp:false,calm:false,surge:false},ampSurge:false,aiPlan:null,turnNo:0,hinted:false,duelKeys:null};
 const other=d=>d===B.p?B.e:B.p;
@@ -1087,7 +1088,7 @@ function enterBattleUI(tagText){
   hideModals();
 }
 function startBattle(stage){
-  B.mode='battle'; B.modeType='campaign'; B.stage=stage; B.state='idle';
+  B.mode='battle'; B.modeType='campaign'; B.side=false; B.stage=stage; B.state='idle';
   const biomeKey=BIOME_ORDER[(stage-1)%BIOME_ORDER.length];
   setupField(biomeKey,stage);
   B.p=new Dragon(save.dragonKey,save.level,false,SPAWN_P);
@@ -1104,6 +1105,29 @@ function startBattle(stage){
   announceMatchup(1000);
   if(alpha)setTimeout(()=>announce(B.e.name+' — Alpha boss. Enrages below 40% HP!'),1700);
   if(!B.hinted){B.hinted=true; setTimeout(()=>announce('Drag back from your dragon to slingshot — or hold FIRE.'),alpha?3400:1800);}
+}
+// The Eyrie valve: an optional off-ladder battle at the player's own stage/level for
+// reduced rewards (SIDE_HUNT_MULT), so a stuck run has somewhere to grind besides the
+// same wall stage. Never touches save.stage or save.record.bestStage.
+const SIDE_HUNT_MULT=0.5;
+function startSideHunt(){
+  if(!save.dragonKey)return;
+  const stage=Math.max(1,save.stage);
+  B.mode='battle'; B.modeType='campaign'; B.side=true; B.stage=stage; B.state='idle';
+  const biomeKey=BIOME_ORDER[(stage-1)%BIOME_ORDER.length];
+  setupField(biomeKey,stage);
+  B.p=new Dragon(save.dragonKey,save.level,false,SPAWN_P);
+  const keys=Object.keys(DRAGONS);
+  B.e=new Dragon(keys[randi(0,keys.length-1)],Math.max(1,save.level),true,SPAWN_E,false);
+  B.e.facing=-1;
+  B.aim.ang=45; B.aim.pow=0; B.aim.charging=false; B.aim.skill='shot';
+  $('itemCtl').style.display='flex';
+  rollWind();
+  enterBattleUI('Side Hunt · '+curBiome.name);
+  camSnap(B.p.x,B.p.y-120);
+  setTimeout(()=>startTurn(B.p),700);
+  announceMatchup(1000);
+  setTimeout(()=>announce('Side Hunt — off-ladder practice. Reduced rewards; the ladder stays put.'),1700);
 }
 function startDuel(k1,k2){
   B.mode='battle'; B.modeType='duel'; B.stage=0; B.state='idle'; B.duelKeys=[k1,k2];
@@ -1371,26 +1395,28 @@ function huntGrade(turns,hpPct){
 }
 function victory(){
   B.state='over'; deathFX(B.e); sfx.win();
-  const alpha=B.e.alpha;
+  const alpha=B.e.alpha, side=B.side;
   const hg=huntGrade(B.turnNo,B.p.hp/B.p.maxhp);
-  const mult=1+hg.bonus;
+  const mult=(1+hg.bonus)*(side?SIDE_HUNT_MULT:1);
   const exp=Math.round((35+B.stage*14+(alpha?30:0))*mult), gold=Math.round((50+B.stage*22+(alpha?60:0))*mult);
   save.exp+=exp; save.gold+=gold;
   save.record.wins++; save.record.lifeExp+=exp; save.record.lifeGold+=gold;
   save.record.grades[hg.grade]++;
   if(alpha)save.record.alphaWins++;
-  save.record.bestStage=Math.max(save.record.bestStage,B.stage);
+  if(!side)save.record.bestStage=Math.max(save.record.bestStage,B.stage);
   let ups=0; while(save.exp>=expNeed(save.level)){save.exp-=expNeed(save.level); save.level++; ups++;}
   save.skillPts+=ups;
   if(alpha)save.skillPts+=1; // trophy bonus for felling an alpha, on top of any level-up points
-  save.stage=B.stage+1; persist();
+  if(!side)save.stage=B.stage+1;
+  persist();
   $('vExp').textContent='+'+exp+' EXP'; $('vGold').textContent='+'+gold+' Gold'+(alpha?' + 1 bonus skill point':'');
   $('vGrade').textContent='Hunt Grade '+hg.grade+' — '+hg.note+(hg.bonus>0?' (+'+Math.round(hg.bonus*100)+'% bonus applied)':'');
   $('vGrade').className='grade grade-'+hg.grade;
   let lvTxt=ups?('LEVEL UP! Now level '+save.level+' — stats raised, +'+ups+' skill point'+(ups>1?'s':'')+' to spend in the Den.'):'';
   if(ups&&save.level>=4&&save.level-ups<4)lvTxt+=' Second signature skill unlocked!';
   $('vLvl').textContent=lvTxt;
-  $('vSub').textContent=alpha?(B.e.name+' has fallen — the alpha is felled!'):(B.e.name+' has fallen.');
+  $('vSub').textContent=side?(B.e.name+' driven off — side hunt complete, the ladder is unchanged.'):
+    (alpha?(B.e.name+' has fallen — the alpha is felled!'):(B.e.name+' has fallen.'));
   setTimeout(()=>showModal('mVictory'),1000);
 }
 function defeat(){
@@ -1731,10 +1757,11 @@ function refreshSkills(){
 $('btnDenSkills').addEventListener('click',()=>{sfx.click(); refreshSkills(); showModal('mSkills');});
 $('btnSkillsClose').addEventListener('click',()=>{sfx.click(); hideModals();});
 $('btnDenNext').addEventListener('click',()=>{sfx.click(); startBattle(save.stage);});
+$('btnDenSide').addEventListener('click',()=>{sfx.click(); startSideHunt();});
 $('btnDenTitle').addEventListener('click',()=>{sfx.click(); goTitle();});
 $('btnShopClose').addEventListener('click',()=>{sfx.click(); if(shopReturn==='den')refreshDen(); shopReturn==='mVictory'?showModal('mVictory'):hideModals();});
 $('btnNext').addEventListener('click',()=>{sfx.click(); goDen();});
-$('btnRetry').addEventListener('click',()=>{sfx.click(); startBattle(B.stage);});
+$('btnRetry').addEventListener('click',()=>{sfx.click(); B.side?startSideHunt():startBattle(B.stage);});
 $('btnQuit').addEventListener('click',()=>{sfx.click(); goTitle();});
 $('btnRematch').addEventListener('click',()=>{sfx.click(); startDuel(B.duelKeys[0],B.duelKeys[1]);});
 $('btnDuelQuit').addEventListener('click',()=>{sfx.click(); goTitle();});

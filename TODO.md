@@ -318,7 +318,7 @@ one per run).*
     the bonus sizes — a future run could retune once clean hunts are actually chased at
     higher stages, or extend the grade to factor in gear/amps used.
 
-- [ ] **Side hunts (the Eyrie valve).** Haypi let you re-run levels and train in the
+- [x] **Side hunts (the Eyrie valve).** Haypi let you re-run levels and train in the
   Eyrie; the ladder needs a grind valve when a wall stage stops the run.
   - *Intent:* an optional off-ladder battle at roughly the player's level for reduced
     rewards, so a stuck player can strengthen instead of re-throwing at the same wall.
@@ -326,9 +326,35 @@ one per run).*
     the rewards are so ladder stages stay the fastest path; enemy variety.
   - *Extend:* `startBattle` (parameterize an off-ladder variant), `victory` (reduced
     payout branch that must not advance `save.stage`), `mDefeat`, the Den.
+  - *Shipped:* a new `startSideHunt()` (a sibling of `startBattle`, not a parameterized
+    branch of it — the two diverged enough on enemy setup and the alpha rule that a
+    shared function would've needed more flags than it saved) fights at the player's own
+    `save.stage`/level, biome-matched, always non-alpha. A new `B.side` flag marks the
+    battle; `victory()` branches on it to multiply EXP/gold by a new `SIDE_HUNT_MULT`
+    (0.5, stacking with the existing hunt-grade bonus) and to skip both
+    `save.stage=B.stage+1` and the `save.record.bestStage` bump, so it's strictly
+    off-ladder — wins/losses and hunt grades still tally into the career record, since
+    those are dragon-lifetime facts, not ladder facts. Entry point is a new "Side Hunt"
+    button in the Den's button row (`btnDenSide`, styled like the existing subBtns);
+    `btnRetry` also checks `B.side` so retrying a lost side hunt relaunches another side
+    hunt rather than dropping back into a ladder battle at the same stage. Guessed the
+    50% reward multiplier and "fight at your own current stage" (rather than e.g.
+    stage-1) as the simplest read of "roughly the player's level" — a future run could
+    retune the discount or add enemy-pool variety once side hunts are actually played.
   - *Done when:* the player can launch a side hunt, win, and receive reduced rewards with
     `save.stage` unchanged; harness asserts a side-hunt victory awards rewards without
-    advancing the stage.
+    advancing the stage. **Verified**: harness test 16 drives the real `btnDenSide`
+    button to launch a side hunt at the player's current stage with no alpha, wins it
+    and asserts gold is awarded but reduced below the ladder-equivalent base, that
+    `save.stage` and `save.record.bestStage` don't move while `save.record.wins` still
+    increments, that the victory modal reads as a side hunt, that a losing side hunt's
+    `btnRetry` relaunches another side hunt without touching `save.stage`, and drives a
+    full bot-vs-bot side-hunt battle to completion with strict turn alternation intact.
+    Also confirmed live in Playwright/Chromium: screenshots show the Den's new "Side
+    Hunt" button, a battle tagged "SIDE HUNT · FROZEN REACH" against a same-level
+    (non-alpha) enemy, and a victory modal reading "side hunt complete, the ladder is
+    unchanged" with +114 Gold (well under the ~180g a stage-6 ladder win would pay) —
+    the Den's stage readout stayed "Stage 6" after returning.
 
 - [ ] **Magic stones & synthesis.** The most Haypi system of all: augmentation stones you
   socket and combine. **Build only after Tier B gear/loadout has landed** so the two
