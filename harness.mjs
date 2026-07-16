@@ -200,7 +200,10 @@ function loadGame() {
       dealDamage, effectiveAtk, ALPHA_TITLES, ENRAGE_HP_PCT, ENRAGE_ATK_MULT, Math,
       elRel, elMult, ELEMENT_ORDER, ampMult, AMP_SURGE_MULT,
       get crates(){ return crates; }, makeCrates, damageCrate, CRATE_CHANCE, explode,
-      huntGrade, HUNT_GRADES, SIDE_HUNT_MULT, $
+      huntGrade, HUNT_GRADES, SIDE_HUNT_MULT, $,
+      blankStones, addStone, synthesizeStone, socketStone, unsocketStone, pickStoneTier, stoneMult, stoneLabel,
+      STONE_TIER_PCT, STONE_MAX_TIER, STONE_SOCKETS, STONE_MISMATCH_MULT, STONE_DROP_BASE, STONE_TIER_WEIGHTS,
+      refreshStones, victory
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -1001,6 +1004,156 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
     assert(sv.stage === 7, 'a full bot-vs-bot side hunt must still leave save.stage untouched');
+    clearTimers();
+  });
+
+  // -- TEST 17: magic stones — 3-for-1 synthesis, socketed effect on resolved atk, drops, persistence --
+  await test('magic stones: 3-of-a-kind synthesis, a socketed stone raises resolved atk (full on-element, reduced off), drops from victory, and persists', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+    H.B.modeType = 'campaign';
+
+    // -- inventory + 3-for-1 synthesis --------------------------------------------
+    assert(JSON.stringify(sv.stones) === JSON.stringify(H.blankStones()), 'a fresh save should start with empty stone sockets/inventory');
+    H.addStone('Fire', 1); H.addStone('Fire', 1); H.addStone('Fire', 1);
+    assert(sv.stones.inv['Fire_1'] === 3, `three added stones should tally to 3 (got ${sv.stones.inv['Fire_1']})`);
+    assert(H.synthesizeStone('Fire', 1) === true, 'synthesizing 3 tier-1 stones should succeed');
+    assert(!sv.stones.inv['Fire_1'], `synthesis should consume all 3 source stones (got ${sv.stones.inv['Fire_1']})`);
+    assert(sv.stones.inv['Fire_2'] === 1, `synthesis should yield exactly 1 tier-2 stone (got ${sv.stones.inv['Fire_2']})`);
+    assert(H.synthesizeStone('Fire', 1) === false, 'synthesizing with fewer than 3 stones on hand should fail');
+    assert(H.synthesizeStone('Fire', 3) === false, 'a tier-3 stone should not synthesize further (max tier)');
+
+    // -- a socketed stone raises effectiveAtk: full value on-element, reduced off-element --
+    sv.dragonKey = 'ember';   // Fire
+    const d = new H.Dragon('ember', 5, false, 300);   // isAI=false, campaign -> stoneMult applies
+    const baseAtk = H.effectiveAtk(d);
+    assert(baseAtk === d.atk, `with no stones socketed, effective atk should equal raw atk (got ${baseAtk} vs ${d.atk})`);
+
+    assert(H.socketStone(0, 'Fire', 2) === true, 'socketing the synthesized Fire T2 stone should succeed');
+    assert(!sv.stones.inv['Fire_2'], 'socketing should remove the stone from inventory');
+    const matchedAtk = H.effectiveAtk(d);
+    const expectMatched = Math.round(d.atk * (1 + H.STONE_TIER_PCT[2]));
+    assert(matchedAtk === expectMatched, `a matching-element T2 stone should raise effective atk to ${expectMatched} (got ${matchedAtk})`);
+    assert(matchedAtk > baseAtk, 'a socketed matching stone should raise resolved atk over the unsocketed baseline');
+
+    assert(H.unsocketStone(0) === true, 'unsocketing should succeed and return the stone to inventory');
+    assert(sv.stones.inv['Fire_2'] === 1, 'unsocketing should restore the stone to the inventory');
+    assert(H.effectiveAtk(d) === baseAtk, 'with the stone unsocketed, effective atk should fall back to the baseline');
+
+    const offEl = H.ELEMENT_ORDER.find(e => e !== 'Fire');
+    H.addStone(offEl, 2);
+    assert(H.socketStone(0, offEl, 2) === true, 'socketing an off-element stone should still succeed');
+    const mismatchedAtk = H.effectiveAtk(d);
+    const expectMismatched = Math.round(d.atk * (1 + H.STONE_TIER_PCT[2] * H.STONE_MISMATCH_MULT));
+    assert(mismatchedAtk === expectMismatched, `an off-element T2 stone should raise effective atk to ${expectMismatched} (got ${mismatchedAtk})`);
+    assert(mismatchedAtk > baseAtk && mismatchedAtk < matchedAtk, 'an off-element stone should help less than a matching one, but still help');
+    H.unsocketStone(0);
+
+    // -- AI dragons never benefit, even with sockets full ------------------------
+    H.socketStone(0, offEl, 2);
+    const aiD = new H.Dragon('ember', 5, true, 900);
+    assert(H.effectiveAtk(aiD) === aiD.atk, 'an AI/enemy dragon must not benefit from the player\'s socketed stones');
+    H.unsocketStone(0);
+
+    // -- playable/visible: the Den's Stones panel drives real socket/synth/unsocket buttons --
+    sv.stones = H.blankStones();   // clean slate so the counts below are exact
+    H.addStone('Fire', 2); H.addStone('Fire', 2); H.addStone('Fire', 2);
+    H.refreshDen();
+    document.getElementById('btnDenStones').click();
+    const stoneRows = document.getElementById('stoneRows');
+    const fireRow = stoneRows.children.find(r => r.innerHTML.includes('Fire Stone T2'));
+    assert(fireRow, 'the Stones panel should list the Fire T2 stones in inventory');
+    const socketBtn = fireRow.children.find(b => b.textContent === 'Socket');
+    socketBtn.click();
+    assert(sv.stones.sockets[0] && sv.stones.sockets[0].el === 'Fire' && sv.stones.sockets[0].tier === 2,
+      'clicking Socket on the Stones panel should fill the first empty socket');
+    H.refreshDen();
+    assert(document.getElementById('denStones').innerHTML.includes('Fire Stone T2'), 'the Den should show the newly socketed stone in its loadout summary');
+    H.refreshStones();
+    const sockBtn0 = document.getElementById('stoneSockets').children[0];
+    sockBtn0.click();
+    assert(sv.stones.sockets[0] === null, 'clicking a filled socket in the Stones panel should unsocket it');
+    assert(sv.stones.inv['Fire_2'] === 3, 'unsocketing via the panel should return the stone to inventory');
+    H.refreshStones();
+    const synBtn = stoneRows.children.find(r => r.innerHTML.includes('Fire Stone T2')).children.find(b => b.textContent === 'Synth x3');
+    synBtn.click();
+    assert(!sv.stones.inv['Fire_2'] && sv.stones.inv['Fire_3'] === 1, 'clicking Synth x3 on the panel should synthesize into a tier-3 stone');
+    document.getElementById('btnStonesClose').click();
+    assert(!document.getElementById('denStones').innerHTML.includes('Fire Stone T2'),
+      'closing the Stones panel should refresh the Den, not leave its loadout row showing the since-unsocketed stone');
+
+    // -- drops from victory: alphas always drop; a forced-fail roll drops nothing --------
+    sv.stones = H.blankStones();   // clean slate (note: not a re-wipeSave — `sv` must stay the live save object)
+    sv.dragonKey = 'ember'; sv.level = 3; sv.exp = 0; sv.gold = 100; sv.stage = 2;   // non-alpha
+    H.startBattle(2);
+    let B = H.B;
+    const dropEl = B.e.el;
+    B.e.hp = 0;
+    const realRandom = H.Math.random;
+    H.Math.random = () => 0.99;   // fails the base drop-chance check for a non-alpha win
+    H.checkEnd();
+    H.Math.random = realRandom;
+    assert(!sv.stones.inv[dropEl + '_1'], 'a failed drop roll on a non-alpha win should not add a stone');
+    tick(1100); clearTimers();
+
+    sv.dragonKey = 'ember'; sv.level = 3; sv.exp = 0; sv.gold = 100; sv.stage = 2;
+    H.startBattle(2);
+    B = H.B;
+    const dropEl2 = B.e.el;
+    B.e.hp = 0;
+    H.Math.random = () => 0.01;   // passes the drop-chance check, and picks the lowest tier
+    H.checkEnd();
+    H.Math.random = realRandom;
+    assert(sv.stones.inv[dropEl2 + '_1'] >= 1, `a passed drop roll on a non-alpha win should add a tier-1 stone (inv: ${JSON.stringify(sv.stones.inv)})`);
+    assert(document.getElementById('vStone').textContent.includes('Found a'), 'the victory modal should announce a dropped stone');
+    tick(1100); clearTimers();
+
+    sv.dragonKey = 'ember'; sv.level = 3; sv.exp = 0; sv.gold = 100; sv.stage = 5;   // alpha stage
+    H.startBattle(5);
+    B = H.B;
+    assert(B.e.alpha, 'stage 5 should be an alpha battle');
+    const dropEl3 = B.e.el;
+    B.e.hp = 0;
+    H.Math.random = () => 0.99;   // would fail a normal drop roll, but alphas always drop
+    H.checkEnd();
+    H.Math.random = realRandom;
+    assert(sv.stones.inv[dropEl3 + '_3'] >= 1, `an alpha win should always drop a stone, and favor higher tiers (expected a T3 ${dropEl3} stone, inv: ${JSON.stringify(sv.stones.inv)})`);
+    tick(1100); clearTimers();
+
+    // -- persistence: inventory and sockets survive a save/load round trip --------------
+    sv.stones.sockets[1] = { el: 'Ice', tier: 1 };
+    const snapshot = JSON.parse(JSON.stringify(sv.stones));
+    H.persist();
+    sv.stones = H.blankStones();
+    await H.loadSave();
+    assert(JSON.stringify(sv.stones) === JSON.stringify(snapshot), 'stone inventory and sockets should survive a save/load round trip');
+
+    // -- bot-vs-bot turn integrity holds with stones socketed -----------------------
+    sv.dragonKey = 'volt'; sv.level = 3; sv.exp = 0; sv.stage = 4;
+    sv.stones.sockets = [{ el: 'Thunder', tier: 2 }, null, null];
+    H.startBattle(4);
+    B = H.B;
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `battle with stones socketed did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
     clearTimers();
   });
 

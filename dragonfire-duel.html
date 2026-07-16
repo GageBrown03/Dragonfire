@@ -314,6 +314,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <div id="denGold" style="font-size:13.5px;color:var(--gold)"></div>
     <div id="denRecord" class="recordRow"></div>
     <div id="denGear" class="recordRow"></div>
+    <div id="denStones" class="recordRow"></div>
     <div id="denSkillPts" style="font-size:12px;color:var(--gold);min-height:14px"></div>
     <div class="rowBtns">
       <button class="bigBtn primary" id="btnDenNext" style="font-size:16px;padding:12px 30px">Next Battle ▶</button>
@@ -322,6 +323,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
       <button class="subBtn" id="btnDenSide" title="An off-ladder practice fight at your own stage/level — reduced rewards, stage unchanged">Side Hunt</button>
       <button class="subBtn" id="btnDenShop">Shop</button>
       <button class="subBtn" id="btnDenSkills">Skills</button>
+      <button class="subBtn" id="btnDenStones">Stones</button>
       <button class="subBtn" id="btnDenTitle">Title</button>
     </div>
   </div>
@@ -333,6 +335,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <div class="gain" id="vExp">+0 EXP</div>
     <div class="gain" id="vGold">+0 Gold</div>
     <p class="grade" id="vGrade"></p>
+    <p id="vStone" style="color:var(--mist)"></p>
     <p id="vLvl" style="color:var(--gold)"></p>
     <div class="rowBtns">
       <button id="btnShopV">Shop</button>
@@ -379,6 +382,16 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <div class="rowBtns"><button class="bigBtn" id="btnSkillsClose" style="font-size:14px;padding:10px 26px">Close</button></div>
   </div></div>
 
+  <div class="modal hidden" id="mStones"><div class="box">
+    <h2 style="color:var(--gold)">STONE MATRIX</h2>
+    <p>Socketed stones grant a % ATK bonus — full value on your own element, reduced off-element. Three of the same tier and element synthesize into one of the next tier.</p>
+    <div class="shopHead">Sockets</div>
+    <div id="stoneSockets" class="rowBtns"></div>
+    <div class="shopHead">Inventory</div>
+    <div id="stoneRows"></div>
+    <div class="rowBtns"><button class="bigBtn" id="btnStonesClose" style="font-size:14px;padding:10px 26px">Close</button></div>
+  </div></div>
+
   <div class="modal hidden" id="mHelp"><div class="box">
     <h2>FIELD GUIDE</h2>
     <div class="helpBody">
@@ -396,6 +409,8 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
       The shop sells permanent gear: <b>ATK</b> raises damage · <b>DEF</b> lowers damage taken · <b>AGI</b> extends stamina · <b>LUK</b> raises crit chance.
       <div class="sec">Amplifiers</div>
       Shop-bought one-shot items that bend a single turn, just like potions: 🍃 <b>Calm Wind</b> zeroes the wind for this turn's shot, 💥 <b>Overcharge</b> adds +30% damage to your next shot. Neither ends your turn.
+      <div class="sec">Magic stones</div>
+      Victories sometimes drop a stone carrying the defeated dragon's element — alphas always drop one, and drop better tiers. Socket up to 3 in the Den's <b>Stones</b> panel for a % ATK bonus, full value if it matches your own dragon's element. Three of the same tier and element synthesize into one of the next tier.
     </div>
     <div class="rowBtns"><button class="bigBtn" id="btnHelpClose" style="font-size:14px;padding:10px 26px">Close</button></div>
   </div></div>
@@ -512,6 +527,56 @@ const GEAR={
   talon:{ic:'🍀', name:'Lucky Talon', stat:'luk', lbl:'LUK', vals:[0,4,9,15], cost:[220,480,850]}
 };
 
+/* ---------- magic stones ---------- */
+// A second, luck-flavored track distinct from gear: gear is flat stat adds bought with
+// gold; stones are percent ATK bonuses that drop from victories and get socketed. A
+// stone's element matters — full value against a matching dragon, reduced off-element —
+// so it leans on the affinity system rather than duplicating gear's stat shop.
+const STONE_TIER_PCT=[0,0.04,0.09,0.16];       // % ATK bonus by tier (index 1..3)
+const STONE_MAX_TIER=3, STONE_SOCKETS=3, STONE_MISMATCH_MULT=0.4;
+const STONE_DROP_BASE=0.5;                     // base chance per non-alpha win; alphas always drop
+const STONE_TIER_WEIGHTS={normal:[0.72,0.24,0.04], alpha:[0.30,0.45,0.25]};
+function blankStones(){ return {inv:{}, sockets:[null,null,null]}; }
+function stoneKey(el,tier){ return el+'_'+tier; }
+function stoneLabel(el,tier){ return (ELEMENT_ICON[el]||'')+' '+el+' Stone T'+tier; }
+function addStone(el,tier){ const k=stoneKey(el,tier); save.stones.inv[k]=(save.stones.inv[k]||0)+1; }
+function pickStoneTier(alpha){
+  const w=alpha?STONE_TIER_WEIGHTS.alpha:STONE_TIER_WEIGHTS.normal;
+  const r=Math.random(); let acc=0;
+  for(let t=0;t<w.length;t++){ acc+=w[t]; if(r<acc)return t+1; }
+  return w.length;
+}
+// Three of a tier+element synthesize into one of the next tier. Returns false if short.
+function synthesizeStone(el,tier){
+  if(tier>=STONE_MAX_TIER)return false;
+  const k=stoneKey(el,tier);
+  if((save.stones.inv[k]||0)<3)return false;
+  save.stones.inv[k]-=3; if(save.stones.inv[k]<=0)delete save.stones.inv[k];
+  addStone(el,tier+1); persist(); return true;
+}
+function socketStone(slot,el,tier){
+  if(slot<0||slot>=STONE_SOCKETS)return false;
+  const k=stoneKey(el,tier); if((save.stones.inv[k]||0)<1)return false;
+  save.stones.inv[k]--; if(save.stones.inv[k]<=0)delete save.stones.inv[k];
+  save.stones.sockets[slot]={el,tier}; persist(); return true;
+}
+function unsocketStone(slot){
+  const cur=save.stones.sockets[slot]; if(!cur)return false;
+  addStone(cur.el,cur.tier); save.stones.sockets[slot]=null; persist(); return true;
+}
+// Only the player's own dragon in campaign benefits — mirrors skillMult's gating.
+// Matching element pays the full %, off-element pays a reduced share.
+function stoneMult(owner){
+  if(owner.isAI||B.modeType!=='campaign')return 1;
+  let bonus=0;
+  for(const s of save.stones.sockets){
+    if(!s)continue;
+    const pct=STONE_TIER_PCT[s.tier]||0;
+    bonus+=(s.el===owner.el)?pct:pct*STONE_MISMATCH_MULT;
+  }
+  return 1+bonus;
+}
+
 /* ---------- biomes ---------- */
 const BIOMES={
   meadow:{name:'Verdant Vale',
@@ -534,7 +599,7 @@ const BIOME_ORDER=['meadow','cinder','tundra'];
 
 /* ---------- persistent save ---------- */
 function blankRecord(){ return {wins:0,losses:0,alphaWins:0,bestStage:1,lifeGold:0,lifeExp:0,grades:{S:0,A:0,B:0,C:0}}; }
-let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0},gear:{fang:0,scale:0,charm:0,talon:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{}};
+let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0},gear:{fang:0,scale:0,charm:0,talon:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones()};
 const SAVE_KEY='dragonfire-duel-save';
 let storageOK=false;
 async function loadSave(){
@@ -548,7 +613,10 @@ async function loadSave(){
       if(!save.skillUpg)save.skillUpg={};
       if(!save.amps)save.amps={calm:0,surge:0};
       if(typeof save.amps.calm!=='number')save.amps.calm=0;
-      if(typeof save.amps.surge!=='number')save.amps.surge=0;}}
+      if(typeof save.amps.surge!=='number')save.amps.surge=0;
+      if(!save.stones)save.stones=blankStones();
+      if(!save.stones.inv)save.stones.inv={};
+      if(!Array.isArray(save.stones.sockets)||save.stones.sockets.length!==STONE_SOCKETS)save.stones.sockets=[null,null,null];}}
     storageOK=true;
   }catch(e){ storageOK=(typeof window.storage!=='undefined'); }
 }
@@ -557,7 +625,7 @@ function persist(){
   try{ window.storage.set(SAVE_KEY,JSON.stringify(save)).catch(()=>{}); }catch(e){}
 }
 async function wipeSave(){
-  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0},gear:{fang:0,scale:0,charm:0,talon:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{}};
+  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0},gear:{fang:0,scale:0,charm:0,talon:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones()};
   try{ await window.storage.delete(SAVE_KEY);}catch(e){}
 }
 
@@ -1306,7 +1374,7 @@ function skillMult(owner,key){
   return 1+(save.skillUpg[key]||0)*0.10;
 }
 function ampMult(flag){ return flag?AMP_SURGE_MULT:1; }
-function effectiveAtk(d){ return d.enraged?Math.round(d.atk*ENRAGE_ATK_MULT):d.atk; }
+function effectiveAtk(d){ return Math.round(d.atk*(d.enraged?ENRAGE_ATK_MULT:1)*stoneMult(d)); }
 function dealDamage(att,tgt,base,falloff,skillKey){
   const attAtk=effectiveAtk(att);
   const ratio=(attAtk*2)/(attAtk+tgt.def);
@@ -1408,10 +1476,19 @@ function victory(){
   save.skillPts+=ups;
   if(alpha)save.skillPts+=1; // trophy bonus for felling an alpha, on top of any level-up points
   if(!side)save.stage=B.stage+1;
+  // Magic stones: drop from victories, better odds/tiers from alphas; a side hunt's
+  // reduced-reward rule applies here too (chance scales by SIDE_HUNT_MULT).
+  let stoneMsg='';
+  if(alpha||Math.random()<STONE_DROP_BASE*(side?SIDE_HUNT_MULT:1)){
+    const tier=pickStoneTier(alpha);
+    addStone(B.e.el,tier);
+    stoneMsg='Found a '+stoneLabel(B.e.el,tier)+'!';
+  }
   persist();
   $('vExp').textContent='+'+exp+' EXP'; $('vGold').textContent='+'+gold+' Gold'+(alpha?' + 1 bonus skill point':'');
   $('vGrade').textContent='Hunt Grade '+hg.grade+' — '+hg.note+(hg.bonus>0?' (+'+Math.round(hg.bonus*100)+'% bonus applied)':'');
   $('vGrade').className='grade grade-'+hg.grade;
+  $('vStone').textContent=stoneMsg;
   let lvTxt=ups?('LEVEL UP! Now level '+save.level+' — stats raised, +'+ups+' skill point'+(ups>1?'s':'')+' to spend in the Den.'):'';
   if(ups&&save.level>=4&&save.level-ups<4)lvTxt+=' Second signature skill unlocked!';
   $('vLvl').textContent=lvTxt;
@@ -1756,6 +1833,45 @@ function refreshSkills(){
 }
 $('btnDenSkills').addEventListener('click',()=>{sfx.click(); refreshSkills(); showModal('mSkills');});
 $('btnSkillsClose').addEventListener('click',()=>{sfx.click(); hideModals();});
+function refreshStones(){
+  const sockWrap=$('stoneSockets'); sockWrap.innerHTML='';
+  save.stones.sockets.forEach((s,i)=>{
+    const b=document.createElement('button'); b.className='subBtn';
+    b.textContent='Slot '+(i+1)+': '+(s?stoneLabel(s.el,s.tier):'Empty');
+    b.disabled=!s; b.title=s?'Click to unsocket':'Empty socket — socket a stone from the inventory below';
+    b.addEventListener('click',()=>{ if(unsocketStone(i)){sfx.click(); refreshStones();} });
+    sockWrap.appendChild(b);
+  });
+  const wrap=$('stoneRows'); wrap.innerHTML='';
+  const keys=Object.keys(save.stones.inv).filter(k=>save.stones.inv[k]>0).sort();
+  if(!keys.length){
+    const p=document.createElement('p'); p.style.cssText='color:var(--mist);font-size:12px';
+    p.textContent='No stones yet — win battles to find them.'; wrap.appendChild(p);
+  }
+  for(const k of keys){
+    const us=k.lastIndexOf('_'), el=k.slice(0,us), tier=+k.slice(us+1), cnt=save.stones.inv[k];
+    const row=document.createElement('div'); row.className='shopRow';
+    row.innerHTML='<div class="ic">'+(ELEMENT_ICON[el]||'💎')+'</div><div class="inf"><b>'+el+' Stone T'+tier+'</b>'+
+      '<span>+'+Math.round((STONE_TIER_PCT[tier]||0)*100)+'% ATK on '+el+' dragons · x'+cnt+'</span></div>';
+    const sBtn=document.createElement('button'); sBtn.textContent='Socket';
+    sBtn.addEventListener('click',()=>{
+      const slot=save.stones.sockets.findIndex(s=>!s);
+      if(slot<0){announce('All sockets full — unsocket one first.');return;}
+      if(socketStone(slot,el,tier)){sfx.heal(); refreshStones();}
+    });
+    row.appendChild(sBtn);
+    if(tier<STONE_MAX_TIER){
+      const synBtn=document.createElement('button'); synBtn.textContent='Synth x3'; synBtn.disabled=cnt<3;
+      synBtn.addEventListener('click',()=>{
+        if(synthesizeStone(el,tier)){sfx.crit(); announce('Synthesized into a Tier '+(tier+1)+' '+el+' stone!'); refreshStones();}
+      });
+      row.appendChild(synBtn);
+    }
+    wrap.appendChild(row);
+  }
+}
+$('btnDenStones').addEventListener('click',()=>{sfx.click(); refreshStones(); showModal('mStones');});
+$('btnStonesClose').addEventListener('click',()=>{sfx.click(); hideModals(); refreshDen();});
 $('btnDenNext').addEventListener('click',()=>{sfx.click(); startBattle(save.stage);});
 $('btnDenSide').addEventListener('click',()=>{sfx.click(); startSideHunt();});
 $('btnDenTitle').addEventListener('click',()=>{sfx.click(); goTitle();});
@@ -1826,6 +1942,8 @@ function refreshDen(){
     const g=GEAR[k], tier=save.gear[k]||0;
     return '<span title="'+g.name+'">'+g.ic+' '+g.lbl+' T'+tier+'</span>';
   }).join('');
+  $('denStones').innerHTML=save.stones.sockets.map((s,i)=>
+    '<span>'+(s?stoneLabel(s.el,s.tier):'Slot '+(i+1)+': empty')+'</span>').join('');
   $('denSkillPts').textContent=save.skillPts>0?(save.skillPts+' skill point'+(save.skillPts>1?'s':'')+' to spend'):'';
 }
 function goDen(){
