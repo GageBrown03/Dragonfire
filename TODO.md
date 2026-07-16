@@ -356,7 +356,7 @@ one per run).*
     unchanged" with +114 Gold (well under the ~180g a stage-6 ladder win would pay) —
     the Den's stage readout stayed "Stage 6" after returning.
 
-- [ ] **Magic stones & synthesis.** The most Haypi system of all: augmentation stones you
+- [x] **Magic stones & synthesis.** The most Haypi system of all: augmentation stones you
   socket and combine. **Build only after Tier B gear/loadout has landed** so the two
   progression tracks are designed to differ, not collide.
   - *Intent:* a second, luck-flavored progression track — stones drop from victories
@@ -367,9 +367,42 @@ one per run).*
     Matrix size (3 sockets?), drop rates, where the matrix UI lives (the Den).
   - *Extend:* `victory` (drops), `save` (stone inventory + sockets, safe defaults), the
     Den, the `Dragon` constructor's stat application, element affinity above.
+  - *Shipped:* stones are the percent-based track gear isn't: each stone (`STONE_TIER_PCT`,
+    3 tiers — +4%/+9%/+16%) carries an element, drops from `victory()` (`STONE_DROP_BASE`
+    50% chance on a normal win, scaled down by `SIDE_HUNT_MULT` on a side hunt; alphas
+    always drop one and skew `STONE_TIER_WEIGHTS` toward higher tiers) tagged with the
+    *defeated enemy's* element. Up to 3 stones socket into `save.stones.sockets` (a new
+    Den → **Stones** panel, `refreshStones`/`#mStones`, alongside a matching `#denStones`
+    loadout row), and three of the same tier+element synthesize into one of the next tier
+    (`synthesizeStone`) — the explicit 3→1 conversion the item asked for, not a parallel
+    stat shop. Leaned on the affinity system per the Weigh question: a socketed stone
+    grants its full % ATK bonus only when its element matches the wearer's own dragon
+    (`stoneMult`), and a reduced share (`STONE_MISMATCH_MULT`, 40%) off-element, so hunting
+    same-element stones actually matters. Folded into combat through `effectiveAtk` (which
+    already handled alpha enrage's atk multiplier) rather than a fourth multiplier bolted
+    onto `explode()` — `stoneMult` only ever returns >1 for the player's own dragon in
+    campaign, same gating as `skillMult`, so AI dragons and duel mode are untouched. While
+    verifying live, caught and fixed the same class of staleness bug the gear feature
+    found: closing the Stones panel from the Den never called `refreshDen()`, so a just
+    -socketed stone didn't show in the Den's loadout row until the next screen change —
+    now `btnStonesClose` refreshes it. Guessed the 3-socket matrix size, the tier
+    percentages, the 50% base drop chance, and the tier-weight skew for alphas — a future
+    run could retune once stones are actually farmed and stacked at higher stages.
   - *Done when:* stones drop, socket, and synthesize, visibly changing battle output, and
     persist across save/load; harness asserts 3→1 synthesis and a socketed stone's effect
-    on resolved stats.
+    on resolved stats. **Verified**: harness test 17 checks 3-of-a-kind synthesis end to
+    end (add 3 → synthesize → exactly 1 next-tier stone, and that it fails short of 3 or
+    past tier 3), that a socketed stone raises `effectiveAtk`'s resolved output by the
+    exact advertised amount when on-element and a reduced amount off-element (and not at
+    all for an AI dragon), drives the real Den → Stones panel buttons (Socket/Synth
+    x3/unsocket) and confirms the Den's loadout row reflects them (including the
+    close-refresh fix), forces both a failed and a passed drop roll on a normal win and a
+    guaranteed higher-tier drop on an alpha win via a real `victory()` call, round-trips
+    inventory + sockets through save/load, and drives a full bot-vs-bot campaign battle
+    with stones socketed to completion with strict turn alternation. Also confirmed live
+    in Playwright/Chromium: the victory modal reads "Found a 🪨 Earth Stone T1!", the
+    Stones panel lists it with working Socket/Synth buttons, and after socketing and
+    closing the panel the Den's loadout row shows "🪨 Earth Stone T1" (screenshots taken).
 
 *Vision-level Haypi ideas deliberately **not** queued — they need the human's call:
 capturing beaten wild dragons into a stable (breaks the one-raised-dragon vision in
