@@ -411,6 +411,182 @@ battles (scope). Decide, then queue.*
 
 ---
 
+## Tier E — World expansion (new ground to fight on and over)
+
+*Added 2026-07-21 — Tiers A–D are all shipped and the queue ran dry. This wave and the
+two below it are a fresh backlog so the routine has real content again: new terrain and
+roster (E), new combat texture (F), and new reasons to keep playing (G). Same rules as
+always: read CLAUDE.md, topmost unchecked, one per run, treat every item as a direction
+not a spec.*
+
+- [ ] **Fourth biome.** `BIOME_ORDER` has cycled the same three worlds (meadow → cinder →
+  tundra) since the game's first cut. Add a fourth that earns its place in the ladder.
+  - *Intent:* a world that reads as mechanically distinct on sight and in play, not a
+    fourth palette on the same rock-and-sky layout.
+  - *Weigh:* what's the one hook that makes it feel like a different place to fight —
+    a terrain hazard (gaps/pits, a lava floor with fall-damage teeth), a different
+    obstacle behavior, a lighting/readability twist? Where does it slot into the cycle
+    (append it, or interleave for a 4-biome rotation)? Does it need a new `obst` art style
+    or can it reuse `rock`/`shard`/`ice`?
+  - *Extend:* `BIOMES`, `BIOME_ORDER`, `genTerrain`, `makeObstacles`.
+  - *Done when:* the biome is reachable on the ladder, visually and mechanically distinct
+    from the other three, and a battle inside it is playable start to finish; add a
+    bot-vs-bot battle in the new biome to the harness.
+
+- [ ] **A seventh dragon, off the elemental wheel.** The roster has matched the 6-element
+  cycle 1:1 since day one; `ELEMENT_ORDER` has no room for a 7th slot without breaking the
+  clean wheel. Don't force it in — give it a reason to sit outside the wheel instead.
+  - *Intent:* a new dragon worth raising that doesn't just re-skin an existing element,
+    and that a returning player has a reason to go get rather than picking at the title
+    screen from day one.
+  - *Weigh:* `elRel` already returns `'neu'` for any element not found in `ELEMENT_ORDER`
+    — an unlisted element is free neutral-vs-everyone by construction, which is a
+    legitimate identity (no favorable matchup, but no unfavorable one either), not a bug
+    to work around. What unlocks it — a career milestone (e.g. defeat N different alpha
+    titles, or reach a stage threshold) rather than being pickable from turn one? Two new
+    signature skills, or a remix of two existing ones? Is it usable in duel mode too?
+  - *Extend:* `DRAGONS`, `SKILLS`, `elRel`'s neutral fallback, `buildCards` / dragon
+    select, `save` (a new unlock flag with a safe default).
+  - *Done when:* the dragon is earnable through play (not just always-available), fully
+    playable once unlocked (stats, skills, level growth), and confirmed neutral in every
+    elemental matchup; harness asserts the unlock condition, that `elRel` resolves neutral
+    both directions for its element, and a bot-vs-bot battle with it stays alternation-
+    strict.
+
+- [ ] **Boss-only signature hazards.** Alpha identity today is one shared mechanic
+  (enrage) plus a name. Give each of the six `ALPHA_TITLES` its own battlefield-changing
+  move that matches its name, so "fighting Glacierfang" and "fighting Stormcrown" feel
+  different, not just reskinned.
+  - *Intent:* a boss fight where the *name* predicts a specific thing that will happen to
+    the arena, not just a bigger number.
+  - *Weigh:* six is a lot for one run — ship one or two well rather than all six shallow;
+    leave the rest as a note for a future night. Ideas to pick from, not a spec: Cindermaw
+    scorches the ground into a lingering hazard zone, Glacierfang freezes an obstacle into
+    an ice wall mid-fight, Stormcrown's bolt arcs to a second point on the field, Quakehide
+    quakes open a fresh crater under a random footing, Nightgorge blinks unpredictably,
+    Plaguewing's cloud lingers longer than a normal Miasma. Trigger on the existing enrage
+    threshold so it doesn't need a second state machine, and it must stay fully
+    deterministic-enough for the bot-vs-bot harness (no hazard that could stall or loop the
+    AI).
+  - *Extend:* `ALPHA_TITLES`, the enrage branch in `dealDamage`/`aiThink`, `SKILLS`'
+    `zone`/`build`/`sky` flags already used by Miasma/Ice Wall/Sky Chain (reuse the shape
+    rather than inventing a new one).
+  - *Done when:* at least one alpha has a hazard visibly distinct from a plain enrage, is
+    telegraphed the way enrage already is, and doesn't destabilize the turn loop; harness
+    drives a full alpha battle with the new hazard triggered, bot-vs-bot, to completion
+    with strict alternation.
+
+- [ ] **Weather as a biome-linked hazard.** Element affinity made the roster's identity
+  mechanical; biomes still only change the backdrop. Give each biome one weather beat that
+  changes how a turn plays out.
+  - *Intent:* the wind pennant reading "Frozen Reach" should mean something beyond a
+    reskinned obstacle sprite — a reason biome matters as much as opponent element does.
+  - *Weigh:* keep it to one hook per biome and cheap to reason about — e.g. tundra
+    occasionally gusts a harsher wind for a turn, cinder periodically chips obstacle/crate
+    HP with ember rain, meadow stays the calm baseline others are measured against. Must
+    not make aiming unfair/unreadable — telegraph it before it hits, the way the wind
+    pennant and matchup toast already do.
+  - *Extend:* `BIOMES` (a new per-biome hazard config), the wind roll in `startTurn`,
+    `floatTxt`/toast patterns from element affinity and amplifiers.
+  - *Done when:* at least one biome's weather beat is visible and changes a turn's outcome
+    (wind, damage, or similar) in a telegraphed way; harness asserts the hazard fires under
+    a forced roll and the bot-vs-bot sim in that biome stays alternation-strict.
+
+## Tier F — Combat depth (new skills, gear, items)
+
+- [ ] **A third signature-skill tier.** The 2nd signature already unlocks at level 4
+  (`SKILL_KEYS`, `DRAGONS[key].uniq`); late-ladder play flatlines once it's out because
+  there's nothing further to grow into.
+  - *Intent:* a reason a level-10+ dragon still feels like it's becoming something, not
+    just re-running the same two signatures with bigger numbers.
+  - *Weigh:* what level gate makes sense after 4 given the current EXP curve (`expNeed`)?
+    Does every dragon get a genuinely new 3rd skill, or does a lower-tier skill "upgrade"
+    into a stronger version at that level? Keep it additive to the existing `uniq` shape
+    rather than a parallel system.
+  - *Extend:* `DRAGONS.uniq` (extend to a 3rd entry), `SKILLS`, `SKILL_KEYS`, the level
+    gate that currently reveals `uniq[1]` at level 4, the skill-leveling shop from Tier B.
+  - *Done when:* a sufficiently leveled dragon has a visibly new skill in its skill list
+    that it didn't have at level 4, usable in battle; harness asserts the 3rd skill is
+    absent below the gate level and present at/above it, and a bot-vs-bot battle using it
+    stays alternation-strict.
+
+- [ ] **A defensive-counter skill archetype.** Every instant today is passive-defensive
+  (Heal, Shield) or repositioning (Shadow Step) — nothing punishes an incoming hit.
+  - *Intent:* a skill choice that changes how the *opponent* plays their next turn, not
+    just how much damage the caster takes or deals.
+  - *Weigh:* simplest version — e.g. a ward that reflects a percentage of the next hit
+    taken back at the attacker, single use, ends the turn like Shield does. Which dragon(s)
+    get it — a shared skill like Heal/Shield, or a signature for one dragon? Must compose
+    cleanly with the existing Shield-block math in `dealDamage`, not fork it.
+  - *Extend:* `SKILLS` (new instant-type entry), `dealDamage`'s shield-block path,
+    `castInstant`.
+  - *Done when:* the skill is selectable, visibly changes the outcome of the next incoming
+    hit, and ends the turn like other instants; harness asserts the reflected damage lands
+    on the original attacker and the turn ends correctly.
+
+- [ ] **A fifth gear line: elemental ward.** `GEAR` covers ATK/DEF/AGI/LUK; nothing lets
+  a player build around the affinity system defensively the way stones build around it
+  offensively.
+  - *Intent:* a gear choice that specifically softens being on the wrong side of a bad
+    matchup, giving affinity a defensive answer to go with its offensive one.
+  - *Weigh:* flat damage-taken reduction vs a multiplier that specifically dampens
+    `ELEM_RES` — keep it distinct from `talon`'s crit-adjacent LUK so it doesn't feel like
+    a reskin. 3 tiers, matching the existing gear shape.
+  - *Extend:* `GEAR`, the stat application in the `Dragon` constructor, `elMult`'s
+    application inside `dealDamage`, the Den loadout row from Tier B.
+  - *Done when:* the gear is buyable, equipped, visible in the Den loadout, and measurably
+    reduces resolved damage from an unfavorable matchup; harness asserts the resolved
+    damage delta with/without it equipped and that it persists across save/load.
+
+- [ ] **A third battle amplifier: Scope.** Calm Wind and Overcharge (Tier D) proved the
+  pattern; a third amplifier gives the player a real choice of which one to carry.
+  - *Intent:* an amplifier that plays against information rather than raw power — e.g.
+    reveals the exact wind value for the next two turns (a direct counter to the weather
+    hazard above, if it ships first, or just to natural wind variance otherwise).
+  - *Weigh:* keep it in the existing `B.usedItem`/one-per-turn/cap-of-2 shape exactly;
+    price it relative to Calm Wind/Overcharge (120g/160g) based on how strong "certainty"
+    turns out to be in practice.
+  - *Extend:* `save.amps`, `useAmp`, the `itemCtl` dock, the shop modal's amplifier rows.
+  - *Done when:* the item is buyable up to its cap, usable without ending the turn, and
+    its effect is visible and verifiable in the aim UI; harness asserts the purchase cap,
+    save/load round-trip, and that using it doesn't end the turn.
+
+## Tier G — Meta & stakes (reasons to keep playing)
+
+- [ ] **Achievement / milestone track.** `save.record` already tracks wins, grades,
+  alpha kills, lifetime EXP/gold — enough raw material for a rewards layer without any new
+  combat mechanics.
+  - *Intent:* one-off bonus rewards (gold, a skill point) for feats that are already being
+    tracked or trivially derivable, giving the career record teeth instead of just being a
+    readout.
+  - *Weigh:* which handful of feats are worth calling out (first S-grade hunt, first alpha
+    felled, first crate broken, N side hunts run)? One-time only, or repeatable tiers? Where
+    does the list live — a new Den panel, or folded into the existing record row?
+  - *Extend:* `save.record`, `victory()`, the Den (`refreshDen`, a new panel alongside
+    Skills/Stones), `save` (a new achieved-set field with a safe default).
+  - *Done when:* at least 3 achievements exist, are visible, and pay out exactly once each
+    when earned, surviving save/load; harness asserts an achievement fires on the
+    triggering condition and does not re-fire on a second identical win.
+
+- [ ] **Trial stages — modifier battles.** Side hunts (Tier D) proved the off-ladder-battle
+  pattern; a trial is a side hunt with one active constraint for a bigger payout, testing
+  mastery instead of just re-grinding the same fight.
+  - *Intent:* an optional, harder off-ladder fight (e.g. no healing allowed, doubled wind,
+    halved max stamina) that pays out better than a plain side hunt for players who want
+    a real test rather than a grind valve.
+  - *Weigh:* which 1–2 constraints are simplest to enforce without touching the turn loop
+    (gating a skill vs a `B` flag another system already reads, like the amplifiers' wind
+    override)? Payout relative to a plain side hunt vs a ladder win?
+  - *Extend:* `startSideHunt` (a sibling variant, matching how it was built as a sibling of
+    `startBattle` rather than a parameterized branch), `B` flags, `victory()`'s reward
+    branching.
+  - *Done when:* the player can launch a trial, the constraint is visibly enforced in
+    battle, and a win pays out more than an equivalent plain side hunt; harness asserts the
+    constraint holds during a bot-vs-bot trial battle and that it still terminates with
+    strict alternation.
+
+---
+
 *Standing concern, not a task:* difficulty / EXP / gold curve tuning is evaluated
 continuously as the ladder grows — adjust it in passing when a feature makes it relevant,
 rather than as a checklist item.
