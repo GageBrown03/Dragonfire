@@ -195,7 +195,8 @@ function loadGame() {
       SKILLS, DRAGONS, GEAR,
       statsAt, expNeed, other,
       startBattle, startDuel, startSideHunt, checkEnd, fire, aiSolve, Dragon,
-      persist, loadSave, wipeSave, ladderWindow, refreshDen, BIOME_ORDER, blankRecord,
+      persist, loadSave, wipeSave, ladderWindow, refreshDen, BIOME_ORDER, BIOMES, blankRecord,
+      get curBiomeKey(){ return curBiomeKey; }, get ground(){ return ground; }, FLOOR, SPAWN_P, SPAWN_E,
       castInstant, skillMult, refreshSkills, SKILL_KEYS, refreshShop,
       dealDamage, effectiveAtk, ALPHA_TITLES, ENRAGE_HP_PCT, ENRAGE_ATK_MULT, Math,
       elRel, elMult, ELEMENT_ORDER, ampMult, AMP_SURGE_MULT,
@@ -1152,6 +1153,79 @@ const flush = () => new Promise((r) => setImmediate(r));
       }
     }
     assert(B.state === 'over', `battle with stones socketed did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    clearTimers();
+  });
+
+  // -- TEST 18: fourth biome — the chasm hazard is a real terrain gap, reachable on the
+  // ladder, and a bot-vs-bot battle fought inside it stays alternation-strict -----------
+  await test('fourth biome: the chasm carves a genuine gap in the terrain, is reachable on the ladder, and the bot-vs-bot sim stays green', () => {
+    clearTimers();
+    assert(H.BIOME_ORDER.length === 4, `expected a 4th biome appended to BIOME_ORDER, got [${H.BIOME_ORDER}]`);
+    const chasmKey = H.BIOME_ORDER[3];
+    assert(H.BIOMES[chasmKey] && H.BIOMES[chasmKey].gap, `expected BIOME_ORDER[3] ("${chasmKey}") to be a gap-hazard biome`);
+
+    const sv = H.save;
+    sv.dragonKey = 'terra'; sv.level = 5; sv.exp = 0; sv.stage = 4;   // stage 4 -> the 4th biome in the cycle
+    H.startBattle(4);
+    const B = H.B;
+    assert(H.curBiomeKey === chasmKey, `expected stage 4 to land on the chasm biome, got "${H.curBiomeKey}"`);
+
+    // The signature hazard: a genuine deep gap mid-field, not just a palette swap. Look for
+    // a contiguous stretch of ground within a few px of FLOOR, well away from either spawn
+    // (a plain undulating meadow/cinder/tundra terrain never dips this close to FLOOR on its own).
+    const ground = H.ground;
+    let gapPx = 0;
+    for (let x = H.SPAWN_P + 240; x < H.SPAWN_E - 240; x++) if (ground[x] >= H.FLOOR - 10) gapPx++;
+    assert(gapPx > 60, `expected a wide contiguous chasm gap between the spawns, found only ${gapPx}px near FLOOR`);
+    // and the spawns themselves must stay clear of the chasm so dragons don't start fallen in
+    assert(ground[H.SPAWN_P] < H.FLOOR - 10 && ground[H.SPAWN_E] < H.FLOOR - 10, 'the chasm should not reach either spawn point');
+
+    // The hazard must be mechanically real, not just cosmetic. Two checks, both driven
+    // through the dragon's real movement/physics methods (Dragon.tryMove / .update / .land):
+    //   1) stepping toward the lip genuinely launches the dragon airborne (tryMove's own
+    //      steep-drop check engages with the carved terrain, same as any other cliff);
+    let gapStart = -1;
+    for (let x = H.SPAWN_P; x < H.SPAWN_E; x++) { if (ground[x] >= H.FLOOR - 10) { gapStart = x; break; } }
+    assert(gapStart > 0, 'could not locate the chasm gap to test falling into it');
+    B.p.x = gapStart - 4; B.p.y = ground[gapStart - 4]; B.p.air = false; B.p.stamina = B.p.maxstam;
+    B.p.tryMove(1, 1 / 60);
+    assert(B.p.air, "stepping toward the chasm's lip should launch the dragon airborne (tryMove didn't engage the drop)");
+    //   2) landing at the pit's full depth deals real fall damage, same rule as any steep drop.
+    B.p.air = true; B.p.x = gapStart + 40; B.p.y = ground[H.SPAWN_P]; B.p.fallFrom = B.p.y; B.p.vy = 0;
+    const hpBeforeFall = B.p.hp;
+    for (let i = 0; i < 400 && B.p.air; i++) B.p.update(1 / 60);
+    assert(!B.p.air, 'dragon should have landed after falling into the chasm within the simulated budget');
+    assert(B.p.hp < hpBeforeFall, `landing at the bottom of the chasm should deal real fall damage (hp ${hpBeforeFall} -> ${B.p.hp})`);
+
+    // Fresh battle for the turn-integrity sim — the mechanical checks above deliberately
+    // dropped B.p mid-chasm, which isn't a state a real battle would ever start from.
+    clearTimers();
+    sv.dragonKey = 'terra'; sv.level = 5; sv.exp = 0; sv.stage = 4;
+    H.startBattle(4);
+    const B2 = H.B;
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    // The chasm and its floating obstacles make line-of-sight harder to solve than open
+    // terrain, so bot-vs-bot fights here run longer than the standard 8000-frame budget
+    // (confirmed: turnNo climbs steadily throughout, this is a slower grind, not a stall).
+    const BUDGET = 16000;
+    for (let i = 0; i < BUDGET && B2.state !== 'over'; i++) {
+      tick(16);
+      if (B2.mode === 'battle' && B2.state === 'aim' && B2.active && !B2.active.isAI && !B2.active.dead) {
+        const foe = H.other(B2.active);
+        const sol = H.aiSolve ? H.aiSolve(B2.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B2.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B2.turnNo > lastTurn) {
+        if (B2.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B2.turnNo - lastTurn} near turn ${B2.turnNo} (double-advance?)`);
+        const side = B2.active === B2.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B2.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B2.turnNo; turnsSeen++;
+      }
+    }
+    assert(B2.state === 'over', `chasm battle did not finish within ${BUDGET} frames (stuck in state "${B2.state}")`);
     assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
     clearTimers();

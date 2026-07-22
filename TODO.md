@@ -419,7 +419,7 @@ roster (E), new combat texture (F), and new reasons to keep playing (G). Same ru
 always: read CLAUDE.md, topmost unchecked, one per run, treat every item as a direction
 not a spec.*
 
-- [ ] **Fourth biome.** `BIOME_ORDER` has cycled the same three worlds (meadow → cinder →
+- [x] **Fourth biome.** `BIOME_ORDER` has cycled the same three worlds (meadow → cinder →
   tundra) since the game's first cut. Add a fourth that earns its place in the ladder.
   - *Intent:* a world that reads as mechanically distinct on sight and in play, not a
     fourth palette on the same rock-and-sky layout.
@@ -429,9 +429,45 @@ not a spec.*
     (append it, or interleave for a 4-biome rotation)? Does it need a new `obst` art style
     or can it reuse `rock`/`shard`/`ice`?
   - *Extend:* `BIOMES`, `BIOME_ORDER`, `genTerrain`, `makeObstacles`.
+  - *Shipped:* a fourth biome, `BIOMES.chasm` ("Sundered Chasm", a dusk-lit canyon), took
+    the gap/pit hazard from the Weigh list. Went with the terrain hook over a new obstacle
+    behavior since it reads as unmistakably different on sight (a literal split down the
+    middle of the battlefield) without needing new art — reuses the `rock` obstacle style.
+    A new per-biome `gap:true` flag on the `BIOMES` entry (data-driven, matching how
+    `pillars`/`obst`/`amb` already vary per biome) branches `genTerrain`: instead of the
+    usual stone-spire loop, a new `carveChasm()` carves a ~200px-wide pit down to
+    `FLOOR-4` at midfield (kept clear of both spawns and their flatten zones). No new
+    physics needed — `Dragon.tryMove`'s existing steep-drop check and `Dragon.land`'s
+    existing fall-damage rule (used everywhere else for craters/cliffs) apply to the
+    chasm automatically, so walking off the lip is genuinely risky, not just a visual.
+    Appended (not interleaved) to `BIOME_ORDER`, so it's stage 4, 8, 12… in the existing
+    `(stage-1)%BIOME_ORDER.length` cycle — the Den ladder, duel's random-biome picker, and
+    the stage tag all picked it up for free since they're already data-driven off
+    `BIOMES`/`BIOME_ORDER`. Added a pre-battle toast in campaign
+    ("A chasm splits the field — arc your shots, or risk the fall.") mirroring the
+    alpha/matchup announcement pattern; left duel mode's toast alone since CLAUDE.md says
+    not to extend duel-mode feature work (the terrain hazard itself is unavoidably shared,
+    since duel already draws its biome from the same `BIOME_ORDER`). Guessed the pit width
+    (~200px), depth (`FLOOR-4`), and placement (always centered, not randomized off-center
+    by more than ±50px) — a future run could vary the gap's shape/position per battle, or
+    give it a second small ledge to fight from mid-gap.
   - *Done when:* the biome is reachable on the ladder, visually and mechanically distinct
     from the other three, and a battle inside it is playable start to finish; add a
-    bot-vs-bot battle in the new biome to the harness.
+    bot-vs-bot battle in the new biome to the harness. **Verified**: harness test 18
+    confirms `BIOME_ORDER` grew a 4th, gap-flagged biome and that stage 4 actually lands
+    on it; scans the generated terrain for a wide contiguous gap near `FLOOR` between the
+    spawns (and confirms the spawns themselves stay clear of it); drives the real
+    `Dragon.tryMove`/`.update`/`.land` methods to confirm stepping toward the lip launches
+    a dragon airborne and that landing at the pit's bottom deals real fall damage; and
+    drives a full bot-vs-bot campaign battle inside the chasm to completion with strict
+    turn alternation (given a larger, still-bounded frame budget — the chasm and its
+    floating obstacles make trajectories harder to solve, so bot fights here run
+    genuinely longer, confirmed by turn count climbing steadily rather than stalling).
+    Also confirmed live in Playwright/Chromium: a stage-4 battle screenshot shows "STAGE 4
+    · SUNDERED CHASM" with a canyon splitting Terra and a Wild Venom across a visible gap,
+    the pre-battle toast reading "A chasm splits the field — arc your shots, or risk the
+    fall.", and the Den's stage ladder correctly reflects the new biome via its existing
+    data-driven dot coloring.
 
 - [ ] **A seventh dragon, off the elemental wheel.** The roster has matched the 6-element
   cycle 1:1 since day one; `ELEMENT_ORDER` has no room for a 7th slot without breaking the
