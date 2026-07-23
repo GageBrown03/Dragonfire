@@ -142,6 +142,9 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 .card.selP1::after,.card.selP2::after{position:absolute;top:7px;right:9px;font-family:var(--disp);font-weight:900;font-size:11px;letter-spacing:.08em}
 .card.selP1::after{content:'P1';color:var(--ember)}
 .card.selP2::after{content:'P2';color:var(--foe)}
+.card.locked{cursor:not-allowed;opacity:.6}
+.card.locked:hover{transform:none}
+.card.locked h3{color:var(--mist)}
 .card .orb{width:50px;height:50px;border-radius:50%;margin:0 auto 8px;border:3px solid rgba(255,255,255,.35);
   box-shadow:inset -6px -8px 14px rgba(0,0,0,.45),0 0 16px rgba(0,0,0,.4)}
 .card h3{font-family:var(--disp);font-size:18px;letter-spacing:.05em}
@@ -461,6 +464,7 @@ const SKILLS={
   boulder:{ic:'🪨', name:'Boulder',      type:'attack', cost:40, base:105, radius:84, spd0:4.2, spdK:.22, gMul:1.3, desc:'Crushing weight, massive crater.'},
   fang:   {ic:'🦇', name:'Night Fang',   type:'attack', cost:38, base:70,  radius:46, spd0:4.4, spdK:.21, gMul:.9, boomer:true, steal:.5, desc:'Returning fang — heals you for half the damage dealt.'},
   toxin:  {ic:'☠',  name:'Venom Spit',   type:'attack', cost:36, base:64,  radius:52, spd0:4.0, spdK:.20, poison:4, desc:'Poisons the foe — 4 turns of decay.'},
+  voidlance:{ic:'🌌',name:'Void Lance',  type:'attack', cost:40, base:74,  radius:52, spd0:4.6, spdK:.22, windless:true, freeze:1, desc:'A bolt of unraveling dark — ignores wind and locks the foe in place.'},
   /* signature skills — slot 2 (unlock at level 4) */
   meteor: {ic:'🌠', name:'Meteor Rain',  type:'attack', cost:45, base:42,  radius:44, spd0:4.0, spdK:.20, cluster:3, aiOk:false, desc:'Splits at the peak into three falling stars.'},
   icewall:{ic:'🧊', name:'Ice Wall',     type:'attack', cost:35, base:30,  radius:70, spd0:4.0, spdK:.20, build:true, aiOk:false, desc:'Raises a rampart of ice where it lands.'},
@@ -468,6 +472,7 @@ const SKILLS={
   roller: {ic:'🥌', name:'Rolling Stone',type:'attack', cost:42, base:78,  radius:58, spd0:4.2, spdK:.20, gMul:1.15, bounce:2, desc:'Skips off the ground twice before bursting.'},
   blink:  {ic:'🌀', name:'Shadow Step',  type:'instant',cost:30, blink:240, desc:'Vanish and reappear ahead. Ends turn.'},
   miasma: {ic:'🟢', name:'Miasma',       type:'attack', cost:45, base:50,  radius:60, spd0:4.0, spdK:.20, zone:{r:95,turns:4,pct:.045}, desc:'Leaves a poison cloud that lingers for rounds.'},
+  starrend:{ic:'💫', name:'Star Rend',   type:'attack', cost:46, base:60,  radius:56, spd0:4.2, spdK:.20, bounce:2, poison:3, desc:'Skips twice before bursting into corrosive stardust — poisons on impact.'},
   /* hidden sub-munitions */
   meteorSub:{hidden:true, type:'attack', base:42, radius:44, spd0:4.0, spdK:.20},
   chainSub: {hidden:true, type:'attack', base:60, radius:44, spd0:5.0, spdK:.23, windless:true}
@@ -492,16 +497,31 @@ const DRAGONS={
     blurb:'A sliver of night. Steals life, then slips away.'},
   venom:{name:'Venom', el:'Toxin',   col:'#a8d93a', col2:'#4c641c', belly:'#f2ffd2', uniq:['toxin','miasma'],
     base:{hp:590,atk:60,def:50,agi:26,luk:9},  grow:{hp:48,atk:6,  def:4.4,agi:1.8,luk:.8},
-    blurb:'Patient rot. Everything it touches keeps dying.'}
+    blurb:'Patient rot. Everything it touches keeps dying.'},
+  nyx:  {name:'Nyx',   el:'Void',     col:'#1a1c33', col2:'#05060f', belly:'#c9b8ff', uniq:['voidlance','starrend'],
+    base:{hp:540,atk:64,def:44,agi:34,luk:14}, grow:{hp:44,atk:6.2,def:3.6,agi:2.2,luk:1.1},
+    blurb:'A tear in the sky, off the elemental wheel. No favorable matchup — but no unfavorable one either.'}
 };
+// Nyx sits off the elemental wheel (its element isn't in ELEMENT_ORDER, so elRel resolves
+// 'neu' both directions by construction — see elRel's fallback). It's not pickable from the
+// title screen: it's earned by career milestone (see isDragonUnlocked below).
+const UNLOCK_REQS={nyx:{alphaWins:3}};
+function isDragonUnlocked(key){
+  const req=UNLOCK_REQS[key]; if(!req)return true;
+  return (save.record.alphaWins||0)>=req.alphaWins;
+}
+function unlockHint(key){
+  const req=UNLOCK_REQS[key]; if(!req)return '';
+  return 'Defeat '+req.alphaWins+' alpha bosses to unlock ('+(save.record.alphaWins||0)+'/'+req.alphaWins+').';
+}
 // Alpha bosses (every 5th stage) get a distinct title instead of a generic "Alpha <name>" tag,
 // and enrage once below ENRAGE_HP_PCT — see Dragon.enraged / dealDamage / aiThink.
-const ALPHA_TITLES={ember:'Cindermaw',frost:'Glacierfang',volt:'Stormcrown',terra:'Quakehide',dusk:'Nightgorge',venom:'Plaguewing'};
+const ALPHA_TITLES={ember:'Cindermaw',frost:'Glacierfang',volt:'Stormcrown',terra:'Quakehide',dusk:'Nightgorge',venom:'Plaguewing',nyx:'Voidmaw'};
 const ENRAGE_HP_PCT=0.4, ENRAGE_ATK_MULT=1.18;
 // Element wheel: each element is strong vs the next entry and weak vs the previous one
 // (cyclic, so every element has exactly one favorable and one unfavorable matchup).
 const ELEMENT_ORDER=['Fire','Toxin','Thunder','Ice','Earth','Shadow'];
-const ELEMENT_ICON={Fire:'🔥',Toxin:'☠',Thunder:'⚡',Ice:'❄',Earth:'🪨',Shadow:'🌑'};
+const ELEMENT_ICON={Fire:'🔥',Toxin:'☠',Thunder:'⚡',Ice:'❄',Earth:'🪨',Shadow:'🌑',Void:'🌌'};
 const ELEM_ADV=1.2, ELEM_RES=0.85;
 function elRel(selfEl,oppEl){
   const i=ELEMENT_ORDER.indexOf(selfEl);
@@ -1182,7 +1202,7 @@ function startBattle(stage){
   const biomeKey=BIOME_ORDER[(stage-1)%BIOME_ORDER.length];
   setupField(biomeKey,stage);
   B.p=new Dragon(save.dragonKey,save.level,false,SPAWN_P);
-  const keys=Object.keys(DRAGONS);
+  const keys=Object.keys(DRAGONS).filter(isDragonUnlocked);
   const alpha=stage%5===0;
   B.e=new Dragon(keys[randi(0,keys.length-1)],stage+(alpha?2:0),true,SPAWN_E,alpha);
   B.e.facing=-1;
@@ -1208,7 +1228,7 @@ function startSideHunt(){
   const biomeKey=BIOME_ORDER[(stage-1)%BIOME_ORDER.length];
   setupField(biomeKey,stage);
   B.p=new Dragon(save.dragonKey,save.level,false,SPAWN_P);
-  const keys=Object.keys(DRAGONS);
+  const keys=Object.keys(DRAGONS).filter(isDragonUnlocked);
   B.e=new Dragon(keys[randi(0,keys.length-1)],Math.max(1,save.level),true,SPAWN_E,false);
   B.e.facing=-1;
   B.aim.ang=45; B.aim.pow=0; B.aim.charging=false; B.aim.skill='shot';
@@ -1988,16 +2008,24 @@ function buildCards(){
   const wrap=$('cards'); wrap.innerHTML='';
   for(const key of Object.keys(DRAGONS)){
     const D=DRAGONS[key], st=statsAt(key,1), u1=SKILLS[D.uniq[0]], u2=SKILLS[D.uniq[1]];
-    const c=document.createElement('div'); c.className='card'; c.dataset.key=key;
-    c.innerHTML='<div class="orb" style="background:radial-gradient(circle at 32% 28%,'+D.belly+','+D.col+' 55%,'+D.col2+')"></div>'+
-      '<h3>'+D.name+'</h3><div class="el">'+D.el+'</div>'+
-      meterRow('HP',st.hp,700)+meterRow('ATK',st.atk,80)+meterRow('DEF',st.def,70)+meterRow('AGI',st.agi,50)+
-      '<div class="blurb">'+D.blurb+'<br><b style="color:var(--bone)">'+u1.ic+' '+u1.name+' · '+u2.ic+' '+u2.name+'</b></div>';
+    const locked=!isDragonUnlocked(key);
+    const c=document.createElement('div'); c.className='card'+(locked?' locked':''); c.dataset.key=key;
+    if(locked){
+      c.innerHTML='<div class="orb" style="background:radial-gradient(circle at 32% 28%,'+D.belly+','+D.col+' 55%,'+D.col2+');filter:grayscale(1)"></div>'+
+        '<h3>???</h3><div class="el">🔒 Locked</div>'+
+        '<div class="blurb">'+unlockHint(key)+'</div>';
+    }else{
+      c.innerHTML='<div class="orb" style="background:radial-gradient(circle at 32% 28%,'+D.belly+','+D.col+' 55%,'+D.col2+')"></div>'+
+        '<h3>'+D.name+'</h3><div class="el">'+D.el+'</div>'+
+        meterRow('HP',st.hp,700)+meterRow('ATK',st.atk,80)+meterRow('DEF',st.def,70)+meterRow('AGI',st.agi,50)+
+        '<div class="blurb">'+D.blurb+'<br><b style="color:var(--bone)">'+u1.ic+' '+u1.name+' · '+u2.ic+' '+u2.name+'</b></div>';
+    }
     c.addEventListener('click',()=>cardClick(key));
     wrap.appendChild(c);
   }
 }
 function cardClick(key){
+  if(!isDragonUnlocked(key))return;
   sfx.click();
   if(titleMode==='campaign'){ pickedKey=key; updateCardSel(); }
   else{
@@ -2038,6 +2066,7 @@ function setTab(mode){
 $('tabCamp').addEventListener('click',()=>setTab('campaign'));
 $('tabDuel').addEventListener('click',()=>setTab('duel'));
 function refreshTitle(){
+  buildCards();   // rebuild so newly-unlocked dragons (e.g. Nyx) reflect the loaded save.record
   const hasSave=!!save.dragonKey;
   if(titleMode==='campaign'&&hasSave&&!pickedKey)pickedKey=save.dragonKey;
   $('btnContinue').style.display=(titleMode==='campaign'&&hasSave)?'':'none';

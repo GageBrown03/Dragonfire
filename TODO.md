@@ -469,7 +469,7 @@ not a spec.*
     fall.", and the Den's stage ladder correctly reflects the new biome via its existing
     data-driven dot coloring.
 
-- [ ] **A seventh dragon, off the elemental wheel.** The roster has matched the 6-element
+- [x] **A seventh dragon, off the elemental wheel.** The roster has matched the 6-element
   cycle 1:1 since day one; `ELEMENT_ORDER` has no room for a 7th slot without breaking the
   clean wheel. Don't force it in — give it a reason to sit outside the wheel instead.
   - *Intent:* a new dragon worth raising that doesn't just re-skin an existing element,
@@ -483,11 +483,54 @@ not a spec.*
     signature skills, or a remix of two existing ones? Is it usable in duel mode too?
   - *Extend:* `DRAGONS`, `SKILLS`, `elRel`'s neutral fallback, `buildCards` / dragon
     select, `save` (a new unlock flag with a safe default).
+  - *Shipped:* a 7th dragon, `DRAGONS.nyx` ("Nyx", element `'Void'`), which — by simply not
+    appearing in `ELEMENT_ORDER` — resolves `'neu'` in `elRel` both attacking and being
+    attacked, exactly the free-by-construction identity the Weigh question called out; no
+    changes to `elRel`/`elMult` were needed. Two new signature skills, each a remix of two
+    already-implemented skill flags rather than new engine mechanics (kept the change small
+    and low-risk on load-bearing combat code): `voidlance` (windless + freeze, unlocked at
+    level 1) and `starrend` (bounce + poison, unlocked at level 4, matching the existing
+    2nd-signature gate). Unlock is a derived career milestone, not a stored flag: a new
+    `UNLOCK_REQS={nyx:{alphaWins:3}}` + `isDragonUnlocked(key)` gate Nyx behind defeating 3
+    alpha bosses, read live off the existing `save.record.alphaWins` — no new save field, so
+    old saves need no migration and the check is always in sync with the record the Den
+    already shows. `buildCards` renders a locked dragon as a grayscale "???" card with a
+    live "X/3" hint instead of its stats/name, and `cardClick` refuses to select a locked
+    key; this applies in both campaign and duel mode (decided duel shares the unlock too,
+    same call as element affinity sharing `dealDamage` — it's a roster-wide gate, not a
+    campaign-only system). Also gated the wild/AI enemy pool in `startBattle`/
+    `startSideHunt` to `isDragonUnlocked` dragons only, so a wild Nyx can't appear as an
+    opponent before the player has earned it either — this doubled as the fix for a subtle
+    harness issue: widening `Object.keys(DRAGONS)` from 6 to 7 shifted the seeded RNG's
+    random-enemy draws in every earlier test, which cascaded into an unrelated bot-vs-bot
+    sim occasionally running long under its frame budget; gating the pool keeps every
+    existing test's enemy draws bit-identical to before since Nyx starts locked on a fresh
+    save. While verifying live in Playwright, caught and fixed a real staleness bug:
+    `buildCards()` was called once in `boot()` *before* the async `loadSave()` resolved, so
+    a returning player who'd already earned Nyx would still see it locked on the title
+    screen until some unrelated state change happened to rebuild the grid. Fixed by moving
+    the rebuild into `refreshTitle()` (called after `loadSave()`, and on every title-screen
+    transition thereafter), so the unlock reliably reflects the loaded save. Guessed the
+    3-alpha-win threshold, the two skill remixes, and "off-ladder wild enemy too" — a future
+    run could retune the threshold or give Nyx a dedicated alpha encounter once it's played.
   - *Done when:* the dragon is earnable through play (not just always-available), fully
     playable once unlocked (stats, skills, level growth), and confirmed neutral in every
     elemental matchup; harness asserts the unlock condition, that `elRel` resolves neutral
     both directions for its element, and a bot-vs-bot battle with it stays alternation-
-    strict.
+    strict. **Verified**: harness test 19 confirms Nyx's element sits outside
+    `ELEMENT_ORDER` and resolves neutral both directions against every roster element,
+    that it's locked on a fresh save and unlocks exactly at `record.alphaWins===3`, that
+    `buildCards` renders it locked (hiding name/stats) then unlocked (revealing them) as
+    the milestone flips, that it has real level growth and both signature skills defined,
+    and drives a full bot-vs-bot campaign battle with Nyx as the player dragon to
+    completion with strict turn alternation. Also confirmed live in Playwright/Chromium: a
+    fresh-save screenshot shows 6 full dragon cards plus a grayscale "???  🔒 LOCKED —
+    Defeat 3 alpha bosses to unlock (0/3)" 7th card; seeding a save with `record.alphaWins:
+    3` through the real `window.storage` load path and reloading shows all 7 cards
+    unlocked including "Nyx"; picking it, confirming the switch-dragon dialog, and
+    starting a hunt lands in a real battle with the HUD reading "🌌 Nyx Lv 1" and the skill
+    dock showing "Void Lance 40 MP" usable and "Star Rend Lv 4" correctly locked until
+    that level (screenshots taken).
 
 - [ ] **Boss-only signature hazards.** Alpha identity today is one shared mechanic
   (enrage) plus a name. Give each of the six `ALPHA_TITLES` its own battlefield-changing
