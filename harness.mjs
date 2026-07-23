@@ -204,7 +204,8 @@ function loadGame() {
       huntGrade, HUNT_GRADES, SIDE_HUNT_MULT, $,
       blankStones, addStone, synthesizeStone, socketStone, unsocketStone, pickStoneTier, stoneMult, stoneLabel,
       STONE_TIER_PCT, STONE_MAX_TIER, STONE_SOCKETS, STONE_MISMATCH_MULT, STONE_DROP_BASE, STONE_TIER_WEIGHTS,
-      refreshStones, victory
+      refreshStones, victory,
+      isDragonUnlocked, UNLOCK_REQS, buildCards
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -1226,6 +1227,74 @@ const flush = () => new Promise((r) => setImmediate(r));
       }
     }
     assert(B2.state === 'over', `chasm battle did not finish within ${BUDGET} frames (stuck in state "${B2.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    clearTimers();
+  });
+
+  // -- TEST 19: a seventh dragon, off the elemental wheel and earned by milestone
+  await test('a seventh dragon (Nyx) sits off the elemental wheel, is locked until 3 alphas are felled, and the bot-vs-bot sim stays green once picked', async () => {
+    clearTimers();
+    assert(H.DRAGONS.nyx, 'expected a 7th dragon, "nyx", in the roster');
+    assert(!H.ELEMENT_ORDER.includes(H.DRAGONS.nyx.el), `nyx's element ("${H.DRAGONS.nyx.el}") should sit outside ELEMENT_ORDER`);
+
+    // -- confirmed neutral in every elemental matchup, both directions ---------
+    for (const el of H.ELEMENT_ORDER) {
+      assert(H.elRel(H.DRAGONS.nyx.el, el) === 'neu', `nyx attacking ${el} should resolve neutral`);
+      assert(H.elRel(el, H.DRAGONS.nyx.el) === 'neu', `${el} attacking nyx should resolve neutral`);
+    }
+
+    // -- earned through play: locked on a fresh save, unlocks at the milestone -
+    await H.wipeSave();
+    const sv = H.save;
+    assert(H.UNLOCK_REQS.nyx && H.UNLOCK_REQS.nyx.alphaWins === 3, 'expected nyx to require 3 alpha wins to unlock');
+    assert(sv.record.alphaWins === 0, 'a fresh save should have no alpha wins yet');
+    assert(H.isDragonUnlocked('nyx') === false, 'nyx should be locked on a fresh save');
+    assert(H.isDragonUnlocked('ember') === true, 'roster dragons without an unlock requirement should stay always-available');
+
+    H.buildCards();
+    const lockedCard = H.$('cards').children.find((c) => c.dataset.key === 'nyx');
+    assert(lockedCard && lockedCard.className.includes('locked'), 'the nyx card should render locked before the milestone is met');
+    assert(lockedCard.innerHTML.includes('Locked'), "a locked card shouldn't reveal the dragon's name/stats");
+
+    sv.record.alphaWins = 3;
+    assert(H.isDragonUnlocked('nyx') === true, 'nyx should unlock once 3 alphas are felled');
+    H.buildCards();
+    const unlockedCard = H.$('cards').children.find((c) => c.dataset.key === 'nyx');
+    assert(!unlockedCard.className.includes('locked'), 'the nyx card should render unlocked once the milestone is met');
+    assert(unlockedCard.innerHTML.includes('Nyx'), "an unlocked card should reveal the dragon's name");
+
+    // -- fully playable once unlocked: real stats, growth, and both signatures -
+    const lvl1 = H.statsAt('nyx', 1), lvl5 = H.statsAt('nyx', 5);
+    assert(lvl5.hp > lvl1.hp && lvl5.atk > lvl1.atk, 'nyx should have real level growth like the rest of the roster');
+    const skillKeys = H.SKILL_KEYS('nyx');
+    assert(skillKeys.includes('voidlance') && skillKeys.includes('starrend'), 'nyx should carry its two signature skills');
+    assert(H.SKILLS.voidlance && H.SKILLS.starrend, "nyx's signature skills should be defined in SKILLS");
+
+    // -- bot-vs-bot turn integrity holds with nyx as the player dragon ---------
+    clearTimers();
+    sv.dragonKey = 'nyx'; sv.level = 4; sv.exp = 0; sv.stage = 3;
+    H.startBattle(3);
+    const B = H.B;
+    assert(B.p.el === 'Void', 'the battle should be using nyx as the player dragon');
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `nyx battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
     assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
     clearTimers();
