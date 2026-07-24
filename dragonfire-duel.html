@@ -1295,7 +1295,7 @@ function startTurn(d){
     if(!d.dead && Math.hypot(d.x-z.x,(d.y-24)-z.y)<z.r){
       const dmg=Math.max(1,Math.round(d.maxhp*z.pct));
       d.hp=Math.max(0,d.hp-dmg); d.hurtT=.3;
-      floatTxt(d.x,d.y-124,'-'+dmg+' miasma','#cdf06a'); sfx.burn();
+      floatTxt(d.x,d.y-124,'-'+dmg+' '+(z.label||'miasma'),z.col2||'#cdf06a'); sfx.burn();
     }
     z.turns--; if(z.turns<=0)B.zones.splice(i,1);
   }
@@ -1444,6 +1444,7 @@ function dealDamage(att,tgt,base,falloff,skillKey){
     announce(tgt.name+' enrages — hits harder now!');
     burst(tgt.x,tgt.y-30,['#ff4d4d','#ff8a3d','#ffffff'],20,3.6,{up:1.8,size:5});
     cam.shake=Math.min(16,cam.shake+8);
+    triggerBossHazard(tgt);
   }
   if(tgt!==att && falloff>0 && skillKey){
     const sk=SKILLS[skillKey];
@@ -1455,6 +1456,30 @@ function dealDamage(att,tgt,base,falloff,skillKey){
       if(h>0){att.hp=Math.min(att.maxhp,att.hp+h); floatTxt(att.x,att.y-86,'+'+h,'#c9aaff');
         burst(att.x,att.y-30,['#9b5de5','#e9dcff'],8,1.8,{up:1.4,grav:-0.1});}
     }
+  }
+}
+
+// Boss-only signature hazards: fired once, from the same enrage trigger as ENRAGE_ATK_MULT,
+// so each alpha's name predicts a specific thing that happens to the arena, not just a bigger
+// number. Only a couple of the six ALPHA_TITLES have one so far; the rest just enrage.
+const BOSS_HAZARDS={
+  ember:{label:'scorch',   col:'#ff8a3d', col2:'#ffd23f'},
+  frost:{label:'ice wall', col:'#bdefff', col2:'#e8fbff'}
+};
+function triggerBossHazard(boss){
+  const hz=BOSS_HAZARDS[boss.key]; if(!hz)return;
+  if(boss.key==='ember'){
+    B.zones.push({x:boss.x,y:boss.y-14,r:110,turns:5,pct:0.035,owner:boss,col:hz.col,col2:hz.col2,label:hz.label});
+    floatTxt(boss.x,boss.y-160,'The ground ignites!',hz.col);
+    announce(boss.name+' scorches the earth around it!');
+    burst(boss.x,boss.y-24,[hz.col,hz.col2,'#ffffff'],20,3.6,{up:1.6,size:5});
+  }else if(boss.key==='frost'){
+    const mx=clamp(boss.x+boss.facing*160,SPAWN_P+180,SPAWN_E-180);
+    buildMound(mx,groundAt(mx),80);
+    floatTxt(mx,groundAt(mx)-130,'A wall of ice rises!',hz.col);
+    announce(boss.name+' freezes the ground into a wall of ice!');
+    burst(mx,groundAt(mx)-20,[hz.col,hz.col2,'#ffffff'],22,3.4,{up:1.8,size:5});
+    sfx.freeze();
   }
 }
 
@@ -2154,11 +2179,11 @@ function render(){
       ctx.beginPath(); ctx.arc(a.x,a.y,a.s,0,TAU); ctx.fill();}
     ctx.restore(); ctx.globalAlpha=1;
   }
-  // miasma zones
+  // hazard zones (miasma, and boss-signature zones like Cindermaw's scorched ground)
   for(const z of B.zones){
-    ctx.globalAlpha=0.15+Math.sin(tGlobal*3)*0.04; ctx.fillStyle='#a8d93a';
+    ctx.globalAlpha=0.15+Math.sin(tGlobal*3)*0.04; ctx.fillStyle=z.col||'#a8d93a';
     ctx.beginPath(); ctx.arc(z.x,z.y,z.r,0,TAU); ctx.fill();
-    ctx.globalAlpha=0.5; ctx.strokeStyle='#cdf06a'; ctx.setLineDash([6,9]); ctx.lineWidth=2;
+    ctx.globalAlpha=0.5; ctx.strokeStyle=z.col2||'#cdf06a'; ctx.setLineDash([6,9]); ctx.lineWidth=2;
     ctx.beginPath(); ctx.arc(z.x,z.y,z.r,0,TAU); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1;
   }
   for(const o of obstacles)drawObstacle(ctx,o);
@@ -2268,7 +2293,7 @@ function update(dt){
   if(camOverview)autoFrame();
   for(const z of B.zones){
     if(Math.random()<dt*10)
-      burst(z.x+rand(-z.r*.75,z.r*.75),z.y+rand(-6,10),'#b9e84a',1,0.5,{up:1.6,grav:-0.25,life:.8,size:3,glow:false});
+      burst(z.x+rand(-z.r*.75,z.r*.75),z.y+rand(-6,10),z.col2||'#b9e84a',1,0.5,{up:1.6,grav:-0.25,life:.8,size:3,glow:false});
   }
   if(canAct()){
     const d=B.active;

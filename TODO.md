@@ -532,7 +532,7 @@ not a spec.*
     dock showing "Void Lance 40 MP" usable and "Star Rend Lv 4" correctly locked until
     that level (screenshots taken).
 
-- [ ] **Boss-only signature hazards.** Alpha identity today is one shared mechanic
+- [x] **Boss-only signature hazards.** Alpha identity today is one shared mechanic
   (enrage) plus a name. Give each of the six `ALPHA_TITLES` its own battlefield-changing
   move that matches its name, so "fighting Glacierfang" and "fighting Stormcrown" feel
   different, not just reskinned.
@@ -550,10 +550,51 @@ not a spec.*
   - *Extend:* `ALPHA_TITLES`, the enrage branch in `dealDamage`/`aiThink`, `SKILLS`'
     `zone`/`build`/`sky` flags already used by Miasma/Ice Wall/Sky Chain (reuse the shape
     rather than inventing a new one).
+  - *Shipped:* two of the six, per the Weigh note — a new `BOSS_HAZARDS` map (keyed by
+    dragon key, mirroring `ALPHA_TITLES`) and a `triggerBossHazard(boss)` function, called
+    once from the exact same enrage branch in `dealDamage` that already flips
+    `tgt.enraged`, so no second state machine and no new trigger point. **Cindermaw**
+    (`ember`) reuses Miasma's `B.zones` shape directly: on enrage it pushes a
+    5-turn/110-radius/3.5%-max-HP-per-tick zone centered on itself (a literal "scorched
+    ground," damaging whoever's turn starts inside it, same as Miasma's existing tick in
+    `startTurn`). **Glacierfang** (`frost`) reuses Ice Wall's `sk.build` shape: on enrage it
+    calls the existing `buildMound()` 160px in front of itself (by facing), raising a real
+    80px-radius terrain rampart that forces an arced shot to clear, exactly like a
+    player-cast Ice Wall would. Both are purely additive to the existing zone-tick and
+    terrain-mound code paths already exercised by Miasma/Ice Wall — no new mechanics, no
+    new obstacle/collision types. Generalized the zone system to carry an optional
+    `col`/`col2`/`label` so a boss's zone reads as its own hazard rather than reskinned
+    miasma-green: the zone fill/stroke colors and the DoT float-text label now default to
+    miasma's green/"miasma" but Cindermaw's zone overrides both to orange/"scorch".
+    Telegraphed the same way enrage already is: an `announce()` toast naming the effect
+    ("Cindermaw scorches the earth around it!" / "Glacierfang freezes the ground into a
+    wall of ice!"), a `floatTxt` ("The ground ignites!" / "A wall of ice rises!"), and a
+    matching `burst()`. The other four alphas (Stormcrown, Quakehide, Nightgorge,
+    Plaguewing) still just enrage — `triggerBossHazard` no-ops for any key not in
+    `BOSS_HAZARDS`, left as a note for a future run to pick up one or two more from the
+    Weigh list.
   - *Done when:* at least one alpha has a hazard visibly distinct from a plain enrage, is
     telegraphed the way enrage already is, and doesn't destabilize the turn loop; harness
     drives a full alpha battle with the new hazard triggered, bot-vs-bot, to completion
-    with strict alternation.
+    with strict alternation. **Verified**: harness test 20 checks `BOSS_HAZARDS` only maps
+    real alpha titles, that `triggerBossHazard` on a real Cindermaw pushes exactly one
+    zone (centered on the boss, real duration/damage/radius, its own color/label rather
+    than miasma's), that it on a real Glacierfang raises the terrain rampart directly
+    (`ground[mx]` measurably lower/higher afterward), that a boss with no mapped hazard
+    (Stormcrown) enrages without touching zones or terrain, that a real `dealDamage` call
+    crossing the enrage threshold on Cindermaw fires the hazard through the actual enrage
+    branch (not just via a direct call), and drives a full bot-vs-bot campaign battle
+    against a forced Cindermaw alpha to completion with strict turn alternation while
+    asserting the hazard actually fired live. Also confirmed live in Playwright/Chromium:
+    one run shows Cindermaw enraged with a translucent orange "scorch" ring around it and
+    a "-32 scorch" float as Terra's turn starts inside it; a second run shows Glacierfang
+    enraged with the toast "Glacierfang freezes the ground into a wall of ice!", the float
+    "A wall of ice rises!", and a new terrain spike visibly risen between the two dragons
+    that wasn't there before the hit (screenshots taken of both).
+  - *Note for a future run:* only Cindermaw and Glacierfang have a hazard; Stormcrown,
+    Quakehide, Nightgorge, and Plaguewing still just enrage. `BOSS_HAZARDS` and
+    `triggerBossHazard` are structured to make adding the next one (e.g. Stormcrown's bolt
+    arcing to a second point, reusing `sk.sky`'s `chainSub` shape) a small, additive change.
 
 - [ ] **Weather as a biome-linked hazard.** Element affinity made the roster's identity
   mechanical; biomes still only change the backdrop. Give each biome one weather beat that
