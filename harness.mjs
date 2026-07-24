@@ -205,7 +205,8 @@ function loadGame() {
       blankStones, addStone, synthesizeStone, socketStone, unsocketStone, pickStoneTier, stoneMult, stoneLabel,
       STONE_TIER_PCT, STONE_MAX_TIER, STONE_SOCKETS, STONE_MISMATCH_MULT, STONE_DROP_BASE, STONE_TIER_WEIGHTS,
       refreshStones, victory,
-      isDragonUnlocked, UNLOCK_REQS, buildCards
+      isDragonUnlocked, UNLOCK_REQS, buildCards,
+      BOSS_HAZARDS, triggerBossHazard
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -1297,6 +1298,95 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(B.state === 'over', `nyx battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
     assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
+    clearTimers();
+  });
+
+  // -- TEST 20: boss-only signature hazards, keyed off the enrage trigger
+  await test('boss-only signature hazards: Cindermaw scorches the ground and Glacierfang raises an ice wall on enrage, and the bot-vs-bot sim stays green', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+
+    // -- config sanity: every mapped hazard belongs to a real alpha title -----
+    const hazardKeys = Object.keys(H.BOSS_HAZARDS);
+    assert(hazardKeys.length >= 1, 'expected at least one boss-signature hazard defined');
+    for (const key of hazardKeys) assert(H.ALPHA_TITLES[key], `BOSS_HAZARDS key "${key}" should be a real alpha title`);
+    assert(H.BOSS_HAZARDS.ember, 'expected Cindermaw (ember) to carry a signature hazard');
+    assert(H.BOSS_HAZARDS.frost, 'expected Glacierfang (frost) to carry a signature hazard');
+
+    // real terrain so ground-raising is meaningful, and B.zones/B.modeType set up like a live battle
+    sv.dragonKey = 'terra'; sv.level = 3; sv.stage = 2; sv.exp = 0;
+    H.startBattle(2);
+    const B = H.B;
+
+    // -- Cindermaw: enraging scorches the ground into a lingering, distinctly-labeled zone --
+    B.zones = [];
+    const emberBoss = new H.Dragon('ember', 5, true, 900, true);
+    H.triggerBossHazard(emberBoss);
+    assert(B.zones.length === 1, `triggerBossHazard should push exactly one zone for ember (got ${B.zones.length})`);
+    const zone = B.zones[0];
+    assert(zone.label && zone.label !== 'miasma', `the scorch zone should read as its own hazard, not generic miasma (got "${zone.label}")`);
+    assert(zone.x === emberBoss.x, 'the scorch zone should be centered on the boss');
+    assert(zone.turns > 0 && zone.pct > 0 && zone.r > 0, 'the scorch zone should have real duration, damage, and radius');
+    assert(zone.col && zone.col !== '#a8d93a', 'the scorch zone should render in its own color, not miasma green');
+
+    // -- Glacierfang: enraging raises a real wall of ice, centered ahead of the boss --
+    const frostBoss = new H.Dragon('frost', 5, true, 900, true);
+    frostBoss.facing = 1;
+    const mx = Math.max(H.SPAWN_P + 180, Math.min(H.SPAWN_E - 180, frostBoss.x + frostBoss.facing * 160));
+    const groundBefore = H.ground[Math.round(mx)];
+    H.triggerBossHazard(frostBoss);
+    const groundAfter = H.ground[Math.round(mx)];
+    assert(groundAfter < groundBefore, `an ice wall should raise the terrain ahead of Glacierfang (before ${groundBefore}, after ${groundAfter})`);
+
+    // -- a boss with no mapped hazard (e.g. Stormcrown) enrages without pushing a zone or touching terrain --
+    B.zones = [];
+    const voltBoss = new H.Dragon('volt', 5, true, 900, true);
+    const groundUnrelated = H.ground[500];
+    H.triggerBossHazard(voltBoss);
+    assert(B.zones.length === 0, 'a boss without a mapped hazard should not push a zone');
+    assert(H.ground[500] === groundUnrelated, 'a boss without a mapped hazard should not touch the terrain');
+
+    // -- wired to the real enrage trigger, not just callable in isolation -----
+    B.zones = [];
+    B.modeType = 'campaign';
+    const attacker = new H.Dragon('terra', 5, false, 300);
+    const wiredBoss = new H.Dragon('ember', 5, true, 900, true);
+    wiredBoss.hp = Math.round(wiredBoss.maxhp * 0.44); // just above the 40% enrage threshold
+    assert(wiredBoss.enraged === false, 'a fresh alpha should not start enraged');
+    H.dealDamage(attacker, wiredBoss, 70, 1, 'shot');  // sized to cross the threshold under any rand()/crit draw
+    assert(wiredBoss.enraged === true, 'the hit should have crossed the enrage threshold');
+    assert(B.zones.length === 1, 'a real enrage event on Cindermaw should fire its hazard through dealDamage, not just via a direct call');
+
+    // -- bot-vs-bot turn integrity stays intact with a live hazard triggered --
+    clearTimers();
+    sv.dragonKey = 'frost'; sv.level = 4; sv.stage = 5; sv.exp = 0;
+    H.startBattle(5);
+    assert(B.e.alpha, 'stage 5 should be an alpha battle');
+    B.e = new H.Dragon('ember', B.e.level, true, H.SPAWN_E, true); // force a hazard-mapped alpha so it's exercised live
+    B.zones = [];
+    let lastTurn = 0, prevSide = null, turnsSeen = 0, hazardFired = false;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.zones.length > 0) hazardFired = true;
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `hazard battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    assert(hazardFired, 'the scorched-ground hazard should have actually fired during the live bot-vs-bot fight');
     clearTimers();
   });
 
