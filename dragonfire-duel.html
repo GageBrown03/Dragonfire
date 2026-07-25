@@ -62,7 +62,8 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
   clip-path:polygon(0 0,100% 18%,86% 50%,100% 82%,0 100%);box-shadow:0 2px 6px rgba(0,0,0,.4);
   transition:transform .5s ease,width .5s ease}
 #windVal{font-family:var(--disp);font-weight:800;font-size:13px;color:var(--bone);background:var(--panel);
-  border:1px solid var(--line);border-radius:8px;padding:1px 9px;letter-spacing:.05em}
+  border:1px solid var(--line);border-radius:8px;padding:1px 9px;letter-spacing:.05em;transition:color .3s,border-color .3s}
+#windVal.weatherActive{color:#ffb35e;border-color:#ffb35e}
 #stageTag{font-size:10px;color:var(--mist);letter-spacing:.18em;text-transform:uppercase;margin-top:2px}
 
 #banner{position:absolute;top:24%;left:50%;transform:translate(-50%,-50%) scale(.9);font-family:var(--disp);
@@ -621,6 +622,38 @@ const BIOMES={
     obst:'rock', amb:null, pillars:0, gap:true}
 };
 const BIOME_ORDER=['meadow','cinder','tundra','chasm'];
+
+// Biome-linked weather: one telegraphed hook per hazardous biome, on a fixed turn cadence
+// alongside the wind (deterministic, not a random roll, so it can be learned and planned
+// around like the turn counter itself). Meadow (the calm baseline) and the chasm (whose
+// gap is already its own hazard) sit this out. Fires before the active side aims, so it
+// reads the same way the wind pennant already does — visible before you commit a shot,
+// not a surprise after you fire.
+const BIOME_WEATHER={
+  cinder:{kind:'emberrain', every:4, pct:0.10, label:'Ember rain'},
+  tundra:{kind:'gust',      every:4, mult:1.6, label:'Harsh gust'}
+};
+function triggerBiomeWeather(){
+  B.weatherActive=false;
+  const w=BIOME_WEATHER[curBiomeKey]; if(!w)return;
+  if(B.turnNo%w.every!==0)return;
+  if(w.kind==='gust'){
+    B.wind=clamp(B.wind*w.mult,-WIND_MAX*1.8,WIND_MAX*1.8);
+    B.weatherActive=true;
+    floatTxt((B.p.x+B.e.x)/2,Math.min(B.p.y,B.e.y)-170,'A harsh gust rips through!','#ffb35e',true);
+    announce('A harsh gust tears across the '+BIOMES[curBiomeKey].name+'!');
+  }else if(w.kind==='emberrain'){
+    const hit=[...obstacles,...crates];
+    if(!hit.length)return;
+    hit.forEach(o=>{
+      const dmg=Math.max(1,Math.round(o.maxhp*w.pct));
+      obstacles.includes(o)?damageObstacle(o,dmg):damageCrate(o,dmg);
+    });
+    B.weatherActive=true;
+    floatTxt((B.p.x+B.e.x)/2,Math.min(B.p.y,B.e.y)-170,'Ember rain scorches the field!','#ff8a3d',true);
+    announce('Ember rain chips the battlefield in the '+BIOMES[curBiomeKey].name+'!');
+  }
+}
 
 /* ---------- persistent save ---------- */
 function blankRecord(){ return {wins:0,losses:0,alphaWins:0,bestStage:1,lifeGold:0,lifeExp:0,grades:{S:0,A:0,B:0,C:0}}; }
@@ -1267,7 +1300,7 @@ function announceMatchup(delay){
 
 function startTurn(d){
   if(B.mode!=='battle'||!(B.state==='idle'||B.state==='settle'))return;
-  B.turnNo++; B.active=d; rollWind(); B.ampSurge=false;
+  B.turnNo++; B.active=d; rollWind(); triggerBiomeWeather(); B.ampSurge=false;
   resetInput(); B.aim.charging=false; B.aim.pow=0;
   d.stamina=d.maxstam;
   d.facing=(other(d).x>d.x)?1:-1;
@@ -2353,7 +2386,9 @@ function syncHUD(){
   setPlate('pp',B.p,duel?' · P1':'',B.e);
   setPlate('ep',B.e,duel?' · P2':'',B.p);
   const wmag=Math.abs(B.wind)/WIND_MAX, dir=B.wind>=0?1:-1;
-  $('windVal').textContent='WIND '+windTxt(B.wind);
+  const windEl=$('windVal');
+  windEl.textContent=(B.weatherActive?'⚠ ':'')+'WIND '+windTxt(B.wind);
+  windEl.classList.toggle('weatherActive',!!B.weatherActive);
   const cloth=$('flagCloth');
   cloth.style.width=(16+wmag*42)+'px';
   cloth.style.transform='scaleX('+(dir*(0.25+wmag*0.75)).toFixed(2)+') skewY('+(Math.sin(tGlobal*6)*4*wmag).toFixed(1)+'deg)';
