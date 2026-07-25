@@ -596,7 +596,7 @@ not a spec.*
     `triggerBossHazard` are structured to make adding the next one (e.g. Stormcrown's bolt
     arcing to a second point, reusing `sk.sky`'s `chainSub` shape) a small, additive change.
 
-- [ ] **Weather as a biome-linked hazard.** Element affinity made the roster's identity
+- [x] **Weather as a biome-linked hazard.** Element affinity made the roster's identity
   mechanical; biomes still only change the backdrop. Give each biome one weather beat that
   changes how a turn plays out.
   - *Intent:* the wind pennant reading "Frozen Reach" should mean something beyond a
@@ -611,6 +611,18 @@ not a spec.*
   - *Done when:* at least one biome's weather beat is visible and changes a turn's outcome
     (wind, damage, or similar) in a telegraphed way; harness asserts the hazard fires under
     a forced roll and the bot-vs-bot sim in that biome stays alternation-strict.
+  - *Shipped:* `BIOME_WEATHER` + `triggerBiomeWeather()`, called from `startTurn` right
+    after `rollWind()`. Cinder gets "Ember rain" (chips obstacle/crate HP), tundra gets a
+    "Harsh gust" (multiplies wind), on a fixed every-4th-turn cadence — deterministic, not
+    a random roll. Meadow and the chasm stay untouched. `B.weatherActive` drives a toast +
+    floatTxt + a highlighted wind pennant, so it reads before you commit a shot.
+  - *Note for a future run:* the cadence is deterministic instead of chance-based — a
+    chance roll consumes `Math.random()` every turn, which shifts the harness's single
+    shared seeded PRNG stream and can push an unrelated bot-vs-bot fight past its
+    8000-frame budget (hit this while building it: fixed-cadence-vs-chance was the fix,
+    not a tuning tweak). If a future biome hook wants true randomness, budget for that
+    stream-shift risk across the whole harness, not just its own test. Only cinder/tundra
+    have a hook so far; meadow and the chasm still sit it out.
 
 ## Tier F — Combat depth (new skills, gear, items)
 

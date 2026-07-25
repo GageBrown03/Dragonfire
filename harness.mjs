@@ -206,7 +206,8 @@ function loadGame() {
       STONE_TIER_PCT, STONE_MAX_TIER, STONE_SOCKETS, STONE_MISMATCH_MULT, STONE_DROP_BASE, STONE_TIER_WEIGHTS,
       refreshStones, victory,
       isDragonUnlocked, UNLOCK_REQS, buildCards,
-      BOSS_HAZARDS, triggerBossHazard
+      BOSS_HAZARDS, triggerBossHazard,
+      get obstacles(){ return obstacles; }, BIOME_WEATHER, triggerBiomeWeather
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -1387,6 +1388,91 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
     assert(hazardFired, 'the scorched-ground hazard should have actually fired during the live bot-vs-bot fight');
+    clearTimers();
+  });
+
+  // -- TEST 21: biome-linked weather — a telegraphed, deterministic per-turn hook for
+  // cinder (ember rain chips obstacles/crates) and tundra (a harsher wind gust) --------
+  await test('biome weather: ember rain chips the field in the Cinder Wastes, a gust bends the wind in the Frozen Reach, meadow/chasm stay calm, and the bot-vs-bot sim stays green', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+
+    // -- config sanity: every weather-mapped biome is a real BIOMES entry ------
+    const weatherKeys = Object.keys(H.BIOME_WEATHER);
+    assert(weatherKeys.length >= 1, 'expected at least one biome-linked weather hook defined');
+    for (const key of weatherKeys) assert(H.BIOMES[key], `BIOME_WEATHER key "${key}" should be a real biome`);
+    assert(H.BIOME_WEATHER.cinder && H.BIOME_WEATHER.tundra, 'expected the Cinder Wastes and Frozen Reach to both carry a weather hook');
+    assert(!H.BIOME_WEATHER.meadow, 'the meadow should stay the calm baseline with no weather hook');
+
+    // -- cinder: ember rain chips obstacle/crate HP on its fixed turn cadence, deterministically --
+    sv.dragonKey = 'ember'; sv.level = 3; sv.stage = 2; sv.exp = 0;   // stage 2 -> cinder
+    H.startBattle(2);
+    let B = H.B;
+    assert(H.curBiomeKey === 'cinder', `expected stage 2 to land on cinder, got "${H.curBiomeKey}"`);
+    const cw = H.BIOME_WEATHER.cinder;
+    H.obstacles.length = 0;
+    H.obstacles.push({ x: 500, y: 400, r: 30, hp: 100, maxhp: 100, style: 'shard', verts: [], cracks: [], bob: 0 });
+    B.turnNo = cw.every - 1;   // not yet on the cadence: should not fire
+    H.triggerBiomeWeather();
+    assert(B.weatherActive === false, 'ember rain should not fire off its turn cadence');
+    assert(H.obstacles[0].hp === 100, 'an obstacle should be untouched off the ember-rain cadence');
+    B.turnNo = cw.every;   // on the cadence: should fire, for an exact, forced-roll-free amount
+    H.triggerBiomeWeather();
+    assert(B.weatherActive === true, 'ember rain should mark the weather active on its turn cadence');
+    const expectedDmg = Math.max(1, Math.round(100 * cw.pct));
+    assert(H.obstacles[0].hp === 100 - expectedDmg, `ember rain should chip the obstacle for exactly its advertised percent (expected hp ${100 - expectedDmg}, got ${H.obstacles[0].hp})`);
+
+    // -- tundra: a harsher gust multiplies (and clamps) the wind on its cadence --------
+    clearTimers();
+    sv.dragonKey = 'frost'; sv.level = 3; sv.stage = 3; sv.exp = 0;   // stage 3 -> tundra
+    H.startBattle(3);
+    B = H.B;
+    assert(H.curBiomeKey === 'tundra', `expected stage 3 to land on tundra, got "${H.curBiomeKey}"`);
+    const tw = H.BIOME_WEATHER.tundra;
+    B.wind = 0.02;
+    B.turnNo = tw.every - 1;
+    H.triggerBiomeWeather();
+    assert(B.weatherActive === false && B.wind === 0.02, 'a gust should not fire off its turn cadence');
+    B.turnNo = tw.every;
+    H.triggerBiomeWeather();
+    assert(B.weatherActive === true, 'a gust should mark the weather active on its turn cadence');
+    assert(Math.abs(B.wind - 0.02 * tw.mult) < 1e-9, `a gust should multiply the wind by its advertised factor (expected ${0.02 * tw.mult}, got ${B.wind})`);
+
+    // -- meadow and the chasm are the calm biomes: never touched, on any turn ---------
+    clearTimers();
+    sv.dragonKey = 'ember'; sv.level = 3; sv.stage = 1; sv.exp = 0;   // stage 1 -> meadow
+    H.startBattle(1);
+    B = H.B;
+    for (let t = 0; t < 12; t++) { B.turnNo = t; H.triggerBiomeWeather(); assert(B.weatherActive === false, `meadow should never trigger weather (turn ${t})`); }
+
+    // -- wired into the real turn loop: startTurn calls it, and it fires during a live cinder fight --
+    clearTimers();
+    sv.dragonKey = 'ember'; sv.level = 3; sv.exp = 0; sv.stage = 2;
+    H.startBattle(2);
+    B = H.B;
+    let lastTurn = 0, prevSide = null, turnsSeen = 0, weatherFired = false;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.weatherActive) weatherFired = true;
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `cinder weather battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    assert(weatherFired, 'ember rain should have actually fired during the live bot-vs-bot cinder fight');
     clearTimers();
   });
 
