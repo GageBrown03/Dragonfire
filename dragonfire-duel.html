@@ -474,6 +474,14 @@ const SKILLS={
   blink:  {ic:'🌀', name:'Shadow Step',  type:'instant',cost:30, blink:240, desc:'Vanish and reappear ahead. Ends turn.'},
   miasma: {ic:'🟢', name:'Miasma',       type:'attack', cost:45, base:50,  radius:60, spd0:4.0, spdK:.20, zone:{r:95,turns:4,pct:.045}, desc:'Leaves a poison cloud that lingers for rounds.'},
   starrend:{ic:'💫', name:'Star Rend',   type:'attack', cost:46, base:60,  radius:56, spd0:4.2, spdK:.20, bounce:2, poison:3, desc:'Skips twice before bursting into corrosive stardust — poisons on impact.'},
+  /* signature skills — slot 3 (unlock at UNIQ3_LEVEL), each a remix of already-used flags */
+  solarflare:{ic:'🌞', name:'Solar Flare',   type:'attack', cost:50, base:86, radius:60, spd0:4.2, spdK:.20, windless:true, burn:4, desc:'A blazing bolt that cuts through the wind and sears for 4 turns.'},
+  deepfreeze:{ic:'🥶', name:'Deep Freeze',   type:'attack', cost:50, base:80, radius:54, spd0:4.0, spdK:.20, gMul:1.1, bounce:2, freeze:1, desc:'Skips across the ice twice before locking the foe in place.'},
+  stormskip: {ic:'🌪', name:'Storm Skip',    type:'attack', cost:50, base:74, radius:48, spd0:4.6, spdK:.22, windless:true, bounce:2, desc:'Skips wind-borne across the field, striking true.'},
+  quakecall: {ic:'⛰',  name:'Quakecall',     type:'attack', cost:50, base:76, radius:64, spd0:4.0, spdK:.20, gMul:1.2, sky:true, desc:'A heavy strike, then a second column crashes down from above.'},
+  wraithbite:{ic:'🩸', name:'Wraith Bite',   type:'attack', cost:50, base:76, radius:48, spd0:4.4, spdK:.21, gMul:.9, boomer:true, steal:.5, poison:3, desc:'Returning fang laced with rot — heals you and poisons the foe.'},
+  vipercoil: {ic:'🐍', name:'Viper Coil',    type:'attack', cost:50, base:72, radius:52, spd0:4.2, spdK:.20, bounce:2, poison:4, desc:'Coils twice off the ground before biting deep.'},
+  oblivionshard:{ic:'🕳', name:'Oblivion Shard', type:'attack', cost:50, base:78, radius:54, spd0:4.6, spdK:.22, windless:true, freeze:1, poison:3, desc:'A windless shard of unraveling dark — freezes and poisons on impact.'},
   /* hidden sub-munitions */
   meteorSub:{hidden:true, type:'attack', base:42, radius:44, spd0:4.0, spdK:.20},
   chainSub: {hidden:true, type:'attack', base:60, radius:44, spd0:5.0, spdK:.23, windless:true}
@@ -481,25 +489,25 @@ const SKILLS={
 
 /* ---------- dragons ---------- */
 const DRAGONS={
-  ember:{name:'Ember', el:'Fire',    col:'#ff6b35', col2:'#8a2b12', belly:'#ffd9a8', uniq:['inferno','meteor'],
+  ember:{name:'Ember', el:'Fire',    col:'#ff6b35', col2:'#8a2b12', belly:'#ffd9a8', uniq:['inferno','meteor','solarflare'],
     base:{hp:520,atk:72,def:40,agi:30,luk:12}, grow:{hp:42,atk:7,  def:3.5,agi:2,  luk:1},
     blurb:'A volcano with wings. Hits hardest, lingers longest.'},
-  frost:{name:'Frost', el:'Ice',     col:'#5ecbe8', col2:'#1f5e86', belly:'#e8fbff', uniq:['glacial','icewall'],
+  frost:{name:'Frost', el:'Ice',     col:'#5ecbe8', col2:'#1f5e86', belly:'#e8fbff', uniq:['glacial','icewall','deepfreeze'],
     base:{hp:560,atk:62,def:48,agi:30,luk:10}, grow:{hp:46,atk:6,  def:4.2,agi:2,  luk:1},
     blurb:'Calm and patient. Locks prey down, builds walls of winter.'},
-  volt: {name:'Volt',  el:'Thunder', col:'#ffd23f', col2:'#9a6a06', belly:'#fff6cf', uniq:['bolt','chain'],
+  volt: {name:'Volt',  el:'Thunder', col:'#ffd23f', col2:'#9a6a06', belly:'#fff6cf', uniq:['bolt','chain','stormskip'],
     base:{hp:480,atk:66,def:36,agi:44,luk:16}, grow:{hp:38,atk:6.5,def:3,  agi:3,  luk:1.5},
     blurb:'Quick feet, quicker temper. The sky answers when it calls.'},
-  terra:{name:'Terra', el:'Earth',   col:'#7bbf5a', col2:'#3c5e2a', belly:'#e7f3c9', uniq:['boulder','roller'],
+  terra:{name:'Terra', el:'Earth',   col:'#7bbf5a', col2:'#3c5e2a', belly:'#e7f3c9', uniq:['boulder','roller','quakecall'],
     base:{hp:640,atk:56,def:60,agi:22,luk:8},  grow:{hp:54,atk:5.5,def:5,  agi:1.5,luk:.8},
     blurb:'A walking hillside. Drops mountains, skips stones.'},
-  dusk: {name:'Dusk',  el:'Shadow',  col:'#9b5de5', col2:'#46297a', belly:'#e9dcff', uniq:['fang','blink'],
+  dusk: {name:'Dusk',  el:'Shadow',  col:'#9b5de5', col2:'#46297a', belly:'#e9dcff', uniq:['fang','blink','wraithbite'],
     base:{hp:500,atk:70,def:38,agi:40,luk:18}, grow:{hp:40,atk:6.8,def:3.2,agi:2.6,luk:1.6},
     blurb:'A sliver of night. Steals life, then slips away.'},
-  venom:{name:'Venom', el:'Toxin',   col:'#a8d93a', col2:'#4c641c', belly:'#f2ffd2', uniq:['toxin','miasma'],
+  venom:{name:'Venom', el:'Toxin',   col:'#a8d93a', col2:'#4c641c', belly:'#f2ffd2', uniq:['toxin','miasma','vipercoil'],
     base:{hp:590,atk:60,def:50,agi:26,luk:9},  grow:{hp:48,atk:6,  def:4.4,agi:1.8,luk:.8},
     blurb:'Patient rot. Everything it touches keeps dying.'},
-  nyx:  {name:'Nyx',   el:'Void',     col:'#1a1c33', col2:'#05060f', belly:'#c9b8ff', uniq:['voidlance','starrend'],
+  nyx:  {name:'Nyx',   el:'Void',     col:'#1a1c33', col2:'#05060f', belly:'#c9b8ff', uniq:['voidlance','starrend','oblivionshard'],
     base:{hp:540,atk:64,def:44,agi:34,luk:14}, grow:{hp:44,atk:6.2,def:3.6,agi:2.2,luk:1.1},
     blurb:'A tear in the sky, off the elemental wheel. No favorable matchup — but no unfavorable one either.'}
 };
@@ -534,7 +542,10 @@ function elRel(selfEl,oppEl){
 function elMult(selfEl,oppEl){ const r=elRel(selfEl,oppEl); return r==='adv'?ELEM_ADV:r==='res'?ELEM_RES:1; }
 // Battle amplifiers: one-shot tactical items that bend a single turn's shot without ending it.
 const AMP_SURGE_MULT=1.3;
-const SKILL_KEYS=k=>['shot','twin','mega','heal','shield',DRAGONS[k].uniq[0],DRAGONS[k].uniq[1]];
+const SKILL_KEYS=k=>['shot','twin','mega','heal','shield',DRAGONS[k].uniq[0],DRAGONS[k].uniq[1],DRAGONS[k].uniq[2]];
+// The 3rd signature unlocks well past the 2nd (level 4) so a late-ladder dragon still has
+// something to grow into instead of flatlining on the same two signatures forever.
+const UNIQ3_LEVEL=8;
 const statsAt=(key,lvl)=>{const D=DRAGONS[key],b=D.base,g=D.grow,n=lvl-1;return{
   hp:Math.round(b.hp+g.hp*n), atk:Math.round(b.atk+g.atk*n), def:Math.round(b.def+g.def*n),
   agi:Math.round(b.agi+g.agi*n), luk:Math.round(b.luk+g.luk*n), mp:100+lvl*4 };};
@@ -1593,6 +1604,7 @@ function victory(){
   $('vStone').textContent=stoneMsg;
   let lvTxt=ups?('LEVEL UP! Now level '+save.level+' — stats raised, +'+ups+' skill point'+(ups>1?'s':'')+' to spend in the Den.'):'';
   if(ups&&save.level>=4&&save.level-ups<4)lvTxt+=' Second signature skill unlocked!';
+  if(ups&&save.level>=UNIQ3_LEVEL&&save.level-ups<UNIQ3_LEVEL)lvTxt+=' Third signature skill unlocked!';
   $('vLvl').textContent=lvTxt;
   $('vSub').textContent=side?(B.e.name+' driven off — side hunt complete, the ladder is unchanged.'):
     (alpha?(B.e.name+' has fallen — the alpha is felled!'):(B.e.name+' has fallen.'));
@@ -1657,6 +1669,7 @@ function aiThink(){
   let skKey='shot';
   const D=DRAGONS[me.key], uniqs=[D.uniq[0]];
   if(me.level>=4)uniqs.push(D.uniq[1]);
+  if(me.level>=UNIQ3_LEVEL)uniqs.push(D.uniq[2]);
   const opts=[];
   for(const u of uniqs){const s=SKILLS[u]; if(s.type==='attack'&&s.aiOk!==false&&me.mp>=s.cost)opts.push(u);}
   if(me.mp>=SKILLS.mega.cost)opts.push('mega');
@@ -1818,15 +1831,16 @@ addEventListener('pointerdown',()=>ac(),{once:true});
 function buildSkillbar(d){
   const box=$('skills'); box.innerHTML='';
   SKILL_KEYS(d.key).forEach((key,i)=>{
-    const sk=SKILLS[key], locked=(i===6&&d.level<4);
+    const gate=i===6?4:(i===7?UNIQ3_LEVEL:0), locked=d.level<gate;
+    const sk=SKILLS[key];
     const b=document.createElement('button');
     b.className='skill clicky'+(sk.type==='instant'?' instant':'');
     b.dataset.key=key; b.dataset.lock=locked?'1':'0';
-    b.title=(locked?'Unlocks at level 4 — ':'')+sk.desc+' ['+(i+1)+']';
+    b.title=(locked?'Unlocks at level '+gate+' — ':'')+sk.desc+' ['+(i+1)+']';
     b.innerHTML='<span class="ic">'+(locked?'🔒':sk.ic)+'</span><span class="nm">'+sk.name+'</span>'+
-      '<span class="cost '+(sk.cost?'':'free')+'">'+(locked?'Lv 4':(sk.cost?sk.cost+' MP':'FREE'))+'</span>';
+      '<span class="cost '+(sk.cost?'':'free')+'">'+(locked?'Lv '+gate:(sk.cost?sk.cost+' MP':'FREE'))+'</span>';
     b.addEventListener('click',()=>{
-      if(b.dataset.lock==='1'){announce('Unlocks at level 4.');return;}
+      if(b.dataset.lock==='1'){announce('Unlocks at level '+gate+'.');return;}
       selectSkill(key);
     });
     box.appendChild(b);
@@ -2065,7 +2079,7 @@ function meterRow(lbl,v,max){
 function buildCards(){
   const wrap=$('cards'); wrap.innerHTML='';
   for(const key of Object.keys(DRAGONS)){
-    const D=DRAGONS[key], st=statsAt(key,1), u1=SKILLS[D.uniq[0]], u2=SKILLS[D.uniq[1]];
+    const D=DRAGONS[key], st=statsAt(key,1), u1=SKILLS[D.uniq[0]], u2=SKILLS[D.uniq[1]], u3=SKILLS[D.uniq[2]];
     const locked=!isDragonUnlocked(key);
     const c=document.createElement('div'); c.className='card'+(locked?' locked':''); c.dataset.key=key;
     if(locked){
@@ -2076,7 +2090,7 @@ function buildCards(){
       c.innerHTML='<div class="orb" style="background:radial-gradient(circle at 32% 28%,'+D.belly+','+D.col+' 55%,'+D.col2+')"></div>'+
         '<h3>'+D.name+'</h3><div class="el">'+D.el+'</div>'+
         meterRow('HP',st.hp,700)+meterRow('ATK',st.atk,80)+meterRow('DEF',st.def,70)+meterRow('AGI',st.agi,50)+
-        '<div class="blurb">'+D.blurb+'<br><b style="color:var(--bone)">'+u1.ic+' '+u1.name+' · '+u2.ic+' '+u2.name+'</b></div>';
+        '<div class="blurb">'+D.blurb+'<br><b style="color:var(--bone)">'+u1.ic+' '+u1.name+' · '+u2.ic+' '+u2.name+' · '+u3.ic+' '+u3.name+'</b></div>';
     }
     c.addEventListener('click',()=>cardClick(key));
     wrap.appendChild(c);

@@ -626,7 +626,7 @@ not a spec.*
 
 ## Tier F — Combat depth (new skills, gear, items)
 
-- [ ] **A third signature-skill tier.** The 2nd signature already unlocks at level 4
+- [x] **A third signature-skill tier.** The 2nd signature already unlocks at level 4
   (`SKILL_KEYS`, `DRAGONS[key].uniq`); late-ladder play flatlines once it's out because
   there's nothing further to grow into.
   - *Intent:* a reason a level-10+ dragon still feels like it's becoming something, not
@@ -637,10 +637,42 @@ not a spec.*
     rather than a parallel system.
   - *Extend:* `DRAGONS.uniq` (extend to a 3rd entry), `SKILLS`, `SKILL_KEYS`, the level
     gate that currently reveals `uniq[1]` at level 4, the skill-leveling shop from Tier B.
+  - *Shipped:* every dragon gets a genuinely new 3rd signature (not an upgraded lower
+    tier), each a remix of already-implemented skill flags in a combination that dragon
+    hasn't used yet — e.g. Ember's `solarflare` (windless + burn, its first windless move),
+    Frost's `deepfreeze` (bounce + freeze), Nyx's `oblivionshard` (windless + freeze +
+    poison) — so no new engine mechanics landed on the fragile combat/turn code, only new
+    data rows in `SKILLS` plus a 3rd `DRAGONS[key].uniq` entry. Gated behind a new
+    `UNIQ3_LEVEL=8` constant (double the level-4 2nd-signature gate, chosen against
+    `expNeed`'s curve so it's reachable in a normal run without being trivial) — extended
+    `SKILL_KEYS` to 8 entries, `buildSkillbar`'s lock logic to a per-index gate table
+    (`i===6→4, i===7→UNIQ3_LEVEL`) instead of the old hardcoded `i===6`, `aiThink`'s uniqs
+    pool with the same gate so AI dragons at/above the level use it too, the level-up
+    victory toast with a matching "Third signature skill unlocked!" line, and the title
+    screen's field-guide blurb to preview all three signatures. `SKILL_KEYS` already being
+    the seam the Den's Skills panel iterates over meant the 3rd tier became trainable
+    there for free, no extra plumbing needed. Guessed the level-8 gate, the flat 50-MP
+    cost across all seven, and the specific flag remixes — a future run could retune costs
+    or vary them per dragon once played at that level.
   - *Done when:* a sufficiently leveled dragon has a visibly new skill in its skill list
     that it didn't have at level 4, usable in battle; harness asserts the 3rd skill is
     absent below the gate level and present at/above it, and a bot-vs-bot battle using it
-    stays alternation-strict.
+    stays alternation-strict. **Verified**: harness test 22 checks every dragon carries a
+    distinct, real 3rd signature and that `SKILL_KEYS` exposes it as an 8th entry; drives
+    the real `buildSkillbar` to confirm the skill dock locks slot 8 below level 8 and
+    unlocks it (revealing the real name) at level 8; drives a real `fire()` call to confirm
+    it costs its MP and queues a real projectile; sweeps `aiThink` under forced RNG at
+    level 7 vs level 8 to confirm the option pool never contains it below the gate and can
+    contain it at/above; drives a real oversized `victory()` win to confirm the level-up
+    toast calls out the unlock exactly when crossed; and drives a full bot-vs-bot campaign
+    battle with a level-8 dragon on both sides to completion with strict turn alternation
+    (given a larger frame budget — higher-level dragons carry much more HP, and this test's
+    own upfront RNG use shifts the harness's shared seeded stream, the same documented risk
+    the biome-weather feature ran into). Also confirmed live in Playwright/Chromium: the
+    skill dock at level 8 shows "☀ Solar Flare · 50 MP" unlocked alongside the existing six,
+    and firing it at a solved angle/power landed a real hit (screenshot shows "-102" and a
+    "Burning!" float with a "🔥×4" badge on the enemy plate) while the turn correctly
+    advanced to "ENEMY TURN" afterward.
 
 - [ ] **A defensive-counter skill archetype.** Every instant today is passive-defensive
   (Heal, Shield) or repositioning (Shadow Step) — nothing punishes an incoming hit.
