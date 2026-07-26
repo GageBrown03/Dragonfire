@@ -207,7 +207,8 @@ function loadGame() {
       refreshStones, victory,
       isDragonUnlocked, UNLOCK_REQS, buildCards,
       BOSS_HAZARDS, triggerBossHazard,
-      get obstacles(){ return obstacles; }, BIOME_WEATHER, triggerBiomeWeather
+      get obstacles(){ return obstacles; }, BIOME_WEATHER, triggerBiomeWeather,
+      aiThink, buildSkillbar, UNIQ3_LEVEL
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -1473,6 +1474,118 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
     assert(weatherFired, 'ember rain should have actually fired during the live bot-vs-bot cinder fight');
+    clearTimers();
+  });
+
+  // -- TEST 22: a third signature-skill tier unlocks well past the second -----
+  await test('a third signature-skill tier: every dragon has one, it is locked below UNIQ3_LEVEL and visible/usable at or above it, the AI can select it, and the bot-vs-bot sim stays green', async () => {
+    clearTimers();
+    await H.wipeSave();
+
+    // -- config sanity: every dragon carries a real, distinct 3rd signature ---
+    for (const key of Object.keys(H.DRAGONS)) {
+      const D = H.DRAGONS[key];
+      assert(D.uniq.length === 3, `${key} should carry a 3rd signature skill (uniq: ${JSON.stringify(D.uniq)})`);
+      assert(H.SKILLS[D.uniq[2]], `${key}'s 3rd signature ("${D.uniq[2]}") should be defined in SKILLS`);
+      assert(D.uniq[2] !== D.uniq[0] && D.uniq[2] !== D.uniq[1], `${key}'s 3rd signature should be a distinct skill from its first two`);
+      const keys = H.SKILL_KEYS(key);
+      assert(keys.length === 8 && keys[7] === D.uniq[2], `SKILL_KEYS(${key}) should carry the 3rd signature as an 8th entry`);
+    }
+    assert(H.UNIQ3_LEVEL > 4, 'the 3rd tier should gate well past the level-4 2nd signature');
+
+    // -- visible in the UI: the skill dock locks slot 8 below the gate, unlocks at/above it --
+    const below = new H.Dragon('ember', H.UNIQ3_LEVEL - 1, false, 300);
+    H.buildSkillbar(below);
+    let rows = H.$('skills').children;
+    assert(rows.length === 8, `skill dock should render 8 buttons (got ${rows.length})`);
+    assert(rows[7].dataset.lock === '1', `the 3rd signature should be locked below level ${H.UNIQ3_LEVEL}`);
+    assert(rows[7].innerHTML.includes('🔒'), 'a locked slot should show the lock icon');
+    assert(rows[6].dataset.lock === '0', 'the 2nd signature should already be unlocked below the 3rd-tier gate');
+
+    const above = new H.Dragon('ember', H.UNIQ3_LEVEL, false, 300);
+    H.buildSkillbar(above);
+    rows = H.$('skills').children;
+    assert(rows[7].dataset.lock === '0', `the 3rd signature should unlock at level ${H.UNIQ3_LEVEL}`);
+    assert(rows[7].innerHTML.includes(H.SKILLS[H.DRAGONS.ember.uniq[2]].name), 'an unlocked slot should reveal the skill\'s real name');
+
+    // -- usable in battle: firing it costs MP and queues a real shot -----------
+    H.save.dragonKey = 'ember'; H.save.level = H.UNIQ3_LEVEL; H.save.stage = H.UNIQ3_LEVEL;
+    H.startBattle(H.UNIQ3_LEVEL);
+    let B = H.B;
+    B.p = new H.Dragon('ember', H.UNIQ3_LEVEL, false, H.SPAWN_P);
+    B.active = B.p; B.state = 'aim';
+    const mpBefore = B.p.mp, sk = H.SKILLS['solarflare'];
+    H.fire(B.p, 'solarflare', 45, 70);
+    assert(B.p.mp === mpBefore - sk.cost, `firing the 3rd signature should spend its MP cost (expected ${mpBefore - sk.cost}, got ${B.p.mp})`);
+    assert(B.projs.length === 1 && B.projs[0].skillKey === 'solarflare', 'firing the 3rd signature should queue a real projectile using it');
+    assert(B.state === 'anim', 'firing the 3rd signature should advance the turn state like any other attack');
+    clearTimers();
+
+    // -- the AI's option pool includes it at/above the gate, never below it ----
+    H.startBattle(H.UNIQ3_LEVEL);
+    B = H.B;
+    const realRandom = H.Math.random;
+    function sweepSkills(level) {
+      const boss = new H.Dragon('ember', level, true, B.e.x);
+      boss.hp = boss.maxhp; boss.mp = boss.maxmp;
+      B.e = boss; B.active = boss; B.mode = 'battle'; B.state = 'anim';
+      const seen = new Set();
+      for (let i = 0; i < 40; i++) {
+        B.aiPlan = null;
+        H.Math.random = () => (i + 0.5) / 40;
+        H.aiThink();
+        if (B.aiPlan && B.aiPlan.skKey) seen.add(B.aiPlan.skKey);
+      }
+      return seen;
+    }
+    const lowSeen = sweepSkills(H.UNIQ3_LEVEL - 1);
+    assert(!lowSeen.has('solarflare'), `an enemy below level ${H.UNIQ3_LEVEL} should never select the 3rd signature (saw: ${[...lowSeen].join(',')})`);
+    const highSeen = sweepSkills(H.UNIQ3_LEVEL);
+    assert(highSeen.has('solarflare'), `an enemy at/above level ${H.UNIQ3_LEVEL} should be able to select the 3rd signature (saw: ${[...highSeen].join(',')})`);
+    H.Math.random = realRandom;
+    clearTimers();
+
+    // -- level-up toast calls out the unlock exactly when the gate is crossed --
+    const sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = H.UNIQ3_LEVEL - 1; sv.exp = 0; sv.gold = 0; sv.stage = 30;
+    H.startBattle(30);
+    B = H.B;
+    B.e.hp = 0;
+    H.checkEnd();
+    assert(sv.level >= H.UNIQ3_LEVEL, `the forced-huge win should have leveled past ${H.UNIQ3_LEVEL} (now ${sv.level})`);
+    assert(H.$('vLvl').textContent.includes('Third signature skill unlocked!'), `victory text should call out the 3rd-signature unlock (got "${H.$('vLvl').textContent}")`);
+    tick(1100); clearTimers();
+
+    // -- bot-vs-bot turn integrity holds with a high-level dragon carrying it --
+    clearTimers();
+    sv.dragonKey = 'ember'; sv.level = H.UNIQ3_LEVEL; sv.exp = 0; sv.stage = 9;
+    H.startBattle(9);
+    B = H.B;
+    B.e = new H.Dragon('ember', H.UNIQ3_LEVEL, true, H.SPAWN_E);
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    // Higher-level dragons (bigger HP pools) plus this test's own earlier RNG use (Dragon
+    // construction, the aiThink sweep) shift the harness's single shared seeded stream, so
+    // this fight needs more headroom than the level-3-ish battles elsewhere — same
+    // stream-shift risk noted by the biome-weather feature, not a sign of a stuck loop.
+    const BUDGET = 16000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `3rd-signature battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
     clearTimers();
   });
 
