@@ -674,7 +674,7 @@ not a spec.*
     "Burning!" float with a "🔥×4" badge on the enemy plate) while the turn correctly
     advanced to "ENEMY TURN" afterward.
 
-- [ ] **A defensive-counter skill archetype.** Every instant today is passive-defensive
+- [x] **A defensive-counter skill archetype.** Every instant today is passive-defensive
   (Heal, Shield) or repositioning (Shadow Step) — nothing punishes an incoming hit.
   - *Intent:* a skill choice that changes how the *opponent* plays their next turn, not
     just how much damage the caster takes or deals.
@@ -684,9 +684,45 @@ not a spec.*
     cleanly with the existing Shield-block math in `dealDamage`, not fork it.
   - *Extend:* `SKILLS` (new instant-type entry), `dealDamage`'s shield-block path,
     `castInstant`.
+  - *Shipped:* a new shared instant, **Ward** (`SKILLS.ward`, 25 MP, 🪞), joins Heal/Shield
+    as every dragon's 6th skill slot (`SKILL_KEYS` now runs shot/twin/mega/heal/shield/
+    **ward**/uniq0/uniq1/uniq2 — 9 entries; `buildSkillbar`'s gate table shifted to match
+    but every gate value is unchanged). Went with shared over a single dragon's signature —
+    simpler, and it plants the whole archetype at once rather than picking a favorite.
+    Casting it sets a single-use `status.ward` flag (mirrors `status.shield`'s lifecycle
+    exactly: set in `castInstant`, decremented at the start of the caster's own next turn in
+    `startTurn` if never triggered). In `dealDamage`, the reflect check sits directly after
+    the existing shield-block reduction and reuses the same threaded `dmg` value — not a
+    parallel damage path — computing `reflect = dmg * WARD_REFLECT_PCT * skillMult(tgt,'ward')`
+    (skillMult is the same gated helper attack skills already use for trained-tier scaling,
+    so Ward's reflect share trains via the Den Skills panel for free, and — like every other
+    `skillMult` use — never benefits an AI-held ward). The target still takes the full hit
+    (a "Warded!" float, not a block); the attacker separately loses the reflected share (a
+    "−NN reflected" float) and the flag is consumed. `aiThink`'s existing shield-or-nothing
+    defensive branch now picks Ward over Shield when it can afford the higher MP cost,
+    gated by the same `!me.status.shield` shape (added `!me.status.ward`) and no new
+    `Math.random()` call, so the AI actually wards without adding fresh entropy to the
+    shared seeded stream. Guessed the 35% base reflect share and the 25 MP cost (5 above
+    Shield's) — a future run could retune once it's played at higher stages, or extend the
+    archetype to a second, stronger single-dragon signature.
   - *Done when:* the skill is selectable, visibly changes the outcome of the next incoming
     hit, and ends the turn like other instants; harness asserts the reflected damage lands
-    on the original attacker and the turn ends correctly.
+    on the original attacker and the turn ends correctly. **Verified**: harness test 23
+    checks every dragon's `SKILL_KEYS` carries Ward as a 6th shared entry, that the skill
+    dock shows it unlocked from level 1, that casting it via a real `castInstant` call sets
+    the status flag/spends MP/leaves the battle in its resolving state, that a real
+    `dealDamage` call against a warded target lets the hit through while reflecting ~35% of
+    it onto the attacker and consumes the flag (a follow-up hit reflects nothing further),
+    that a tier-3-trained Ward reflects more than an untrained one while an AI-held Ward
+    never benefits from the player's trained tiers, that the Den's Skills panel trains it
+    like any other shared skill, and drives a full bot-vs-bot campaign battle (where the AI
+    can cast Ward) to completion with strict turn alternation. Also confirmed live in
+    Playwright/Chromium: the skill dock shows "Ward 25 MP" between Shield and Inferno,
+    casting it on a real battle dragon shows the "Ward!" float and spends MP while the turn
+    correctly reads "YOUR TURN" again after the AI's reply, and forcing a real `dealDamage`
+    hit against a warded player dragon shows both "−272 Effective!" on the defender and
+    "−95 reflected" on the attacker in the same screenshot (hp bars moved 520→248 and
+    425→330 respectively).
 
 - [ ] **A fifth gear line: elemental ward.** `GEAR` covers ATK/DEF/AGI/LUK; nothing lets
   a player build around the affinity system defensively the way stones build around it
