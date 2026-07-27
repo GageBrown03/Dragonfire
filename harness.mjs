@@ -208,7 +208,7 @@ function loadGame() {
       isDragonUnlocked, UNLOCK_REQS, buildCards,
       BOSS_HAZARDS, triggerBossHazard,
       get obstacles(){ return obstacles; }, BIOME_WEATHER, triggerBiomeWeather,
-      aiThink, buildSkillbar, UNIQ3_LEVEL
+      aiThink, buildSkillbar, UNIQ3_LEVEL, WARD_REFLECT_PCT
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -990,7 +990,12 @@ const flush = () => new Promise((r) => setImmediate(r));
     B = H.B;
     let lastTurn = 0, prevSide = null, turnsSeen = 0;
     const problems = [];
-    const BUDGET = 8000;
+    // The Ward skill (defensive-counter archetype) gates aiThink's shield/ward pick behind
+    // an extra status check, which skips a would-be Math.random() call once an enemy has
+    // warded — the same shared-seeded-stream shift documented by the biome-weather and
+    // 3rd-signature-tier features, not a stuck loop. This particular matchup needed more
+    // headroom than the default 8000 once that shift landed.
+    const BUDGET = 16000;
     for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
       tick(16);
       if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
@@ -1489,24 +1494,24 @@ const flush = () => new Promise((r) => setImmediate(r));
       assert(H.SKILLS[D.uniq[2]], `${key}'s 3rd signature ("${D.uniq[2]}") should be defined in SKILLS`);
       assert(D.uniq[2] !== D.uniq[0] && D.uniq[2] !== D.uniq[1], `${key}'s 3rd signature should be a distinct skill from its first two`);
       const keys = H.SKILL_KEYS(key);
-      assert(keys.length === 8 && keys[7] === D.uniq[2], `SKILL_KEYS(${key}) should carry the 3rd signature as an 8th entry`);
+      assert(keys.length === 9 && keys[8] === D.uniq[2], `SKILL_KEYS(${key}) should carry the 3rd signature as a 9th entry`);
     }
     assert(H.UNIQ3_LEVEL > 4, 'the 3rd tier should gate well past the level-4 2nd signature');
 
-    // -- visible in the UI: the skill dock locks slot 8 below the gate, unlocks at/above it --
+    // -- visible in the UI: the skill dock locks slot 9 below the gate, unlocks at/above it --
     const below = new H.Dragon('ember', H.UNIQ3_LEVEL - 1, false, 300);
     H.buildSkillbar(below);
     let rows = H.$('skills').children;
-    assert(rows.length === 8, `skill dock should render 8 buttons (got ${rows.length})`);
-    assert(rows[7].dataset.lock === '1', `the 3rd signature should be locked below level ${H.UNIQ3_LEVEL}`);
-    assert(rows[7].innerHTML.includes('🔒'), 'a locked slot should show the lock icon');
-    assert(rows[6].dataset.lock === '0', 'the 2nd signature should already be unlocked below the 3rd-tier gate');
+    assert(rows.length === 9, `skill dock should render 9 buttons (got ${rows.length})`);
+    assert(rows[8].dataset.lock === '1', `the 3rd signature should be locked below level ${H.UNIQ3_LEVEL}`);
+    assert(rows[8].innerHTML.includes('🔒'), 'a locked slot should show the lock icon');
+    assert(rows[7].dataset.lock === '0', 'the 2nd signature should already be unlocked below the 3rd-tier gate');
 
     const above = new H.Dragon('ember', H.UNIQ3_LEVEL, false, 300);
     H.buildSkillbar(above);
     rows = H.$('skills').children;
-    assert(rows[7].dataset.lock === '0', `the 3rd signature should unlock at level ${H.UNIQ3_LEVEL}`);
-    assert(rows[7].innerHTML.includes(H.SKILLS[H.DRAGONS.ember.uniq[2]].name), 'an unlocked slot should reveal the skill\'s real name');
+    assert(rows[8].dataset.lock === '0', `the 3rd signature should unlock at level ${H.UNIQ3_LEVEL}`);
+    assert(rows[8].innerHTML.includes(H.SKILLS[H.DRAGONS.ember.uniq[2]].name), 'an unlocked slot should reveal the skill\'s real name');
 
     // -- usable in battle: firing it costs MP and queues a real shot -----------
     H.save.dragonKey = 'ember'; H.save.level = H.UNIQ3_LEVEL; H.save.stage = H.UNIQ3_LEVEL;
@@ -1584,6 +1589,121 @@ const flush = () => new Promise((r) => setImmediate(r));
       }
     }
     assert(B.state === 'over', `3rd-signature battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    clearTimers();
+  });
+
+  // -- TEST 23: a defensive-counter skill (Ward) — reflects a share of the incoming hit ----
+  await test('a defensive-counter skill (Ward): reflects a share of the next hit back at the attacker, trains, and the bot-vs-bot sim stays green', async () => {
+    clearTimers();
+    await H.wipeSave();
+
+    // -- config sanity: Ward is a shared instant every dragon carries, unlocked from level 1 --
+    assert(H.SKILLS.ward && H.SKILLS.ward.type === 'instant', 'Ward should be defined as a shared instant skill');
+    for (const key of Object.keys(H.DRAGONS)) {
+      const keys = H.SKILL_KEYS(key);
+      assert(keys.length === 9 && keys[5] === 'ward', `SKILL_KEYS(${key}) should carry Ward as its 6th (shared) entry`);
+    }
+
+    // -- visible in the UI: the skill dock shows Ward unlocked from level 1, like Heal/Shield --
+    const lvl1 = new H.Dragon('ember', 1, false, 300);
+    H.buildSkillbar(lvl1);
+    const rows = H.$('skills').children;
+    assert(rows[5].dataset.lock === '0', 'Ward should be usable from level 1, unlike the signature slots');
+    assert(rows[5].innerHTML.includes(H.SKILLS.ward.name), 'the Ward button should show its real name, not a lock');
+
+    // -- casting it: sets the single-use status flag, spends MP, and ends the turn like Shield --
+    H.B.modeType = 'campaign';
+    const caster = new H.Dragon('ember', 1, false, 300);
+    caster.mp = caster.maxmp = 100;
+    H.B.state = 'anim';
+    H.castInstant(caster, 'ward');
+    assert(caster.status.ward === 1, 'casting Ward should raise the single-use ward status flag');
+    assert(caster.mp === 100 - H.SKILLS.ward.cost, `casting Ward should spend its MP cost (expected ${100 - H.SKILLS.ward.cost}, got ${caster.mp})`);
+    assert(H.B.state === 'anim', 'casting an instant should move the battle into its resolving state, same as Shield/Heal');
+    clearTimers();
+
+    // -- reflect math: the warder still takes the hit, but a share lands back on the attacker --
+    const realRandom = H.Math.random;
+    H.Math.random = () => 0.5;   // pin rand()/crit rolls so only the ward reflect varies
+    const att = new H.Dragon('ember', 5, true, 900);
+    const def = new H.Dragon('frost', 5, false, 300);
+    att.hp = att.maxhp = 100000; def.hp = def.maxhp = 100000;
+    def.status.ward = 1;
+    H.dealDamage(att, def, 200, 1, 'shot');
+    const defTaken = 100000 - def.hp, attReflected = 100000 - att.hp;
+    H.Math.random = realRandom;
+    assert(defTaken > 0, 'a warded dragon should still take the incoming hit, not block it outright');
+    assert(attReflected > 0, 'the attacker should take reflected damage back from a warded target');
+    assert(def.status.ward === 0, 'Ward should be single-use, consumed by the hit it reflects');
+    const expected = Math.max(1, Math.round(defTaken * H.WARD_REFLECT_PCT));
+    assert(Math.abs(attReflected - expected) <= 1,
+      `reflected damage (${attReflected}) should be about ${Math.round(H.WARD_REFLECT_PCT * 100)}% of the taken hit (${defTaken}), expected ~${expected}`);
+
+    // -- single-use: a second hit on the same (now-unwarded) target reflects nothing further --
+    H.Math.random = () => 0.5;
+    const attBefore = att.hp;
+    H.dealDamage(att, def, 200, 1, 'shot');
+    H.Math.random = realRandom;
+    assert(att.hp === attBefore, 'once consumed, Ward must not reflect damage from a follow-up hit');
+
+    // -- trained tiers raise the reflected share, gated off AI dragons like other skillMult uses --
+    H.save.skillUpg.ward = 3;
+    H.Math.random = () => 0.5;
+    const attT = new H.Dragon('ember', 5, true, 900), defT = new H.Dragon('frost', 5, false, 300);
+    attT.hp = attT.maxhp = 100000; defT.hp = defT.maxhp = 100000;
+    defT.status.ward = 1;
+    H.dealDamage(attT, defT, 200, 1, 'shot');
+    const trainedReflect = 100000 - attT.hp;
+    H.Math.random = realRandom;
+    assert(trainedReflect > attReflected, `a tier-3-trained Ward (${trainedReflect}) should reflect more than an untrained one (${attReflected})`);
+
+    assert(H.skillMult(new H.Dragon('frost', 5, true, 300), 'ward') === 1, 'an AI dragon should never resolve a trained Ward multiplier, mirroring skillMult\'s existing gating');
+    H.Math.random = () => 0.5;
+    const attAI = new H.Dragon('ember', 5, false, 900), defAI = new H.Dragon('frost', 5, true, 300);
+    attAI.hp = attAI.maxhp = 100000; defAI.hp = defAI.maxhp = 100000;
+    defAI.status.ward = 1;
+    H.dealDamage(attAI, defAI, 200, 1, 'shot');
+    const aiReflect = 100000 - attAI.hp;
+    H.Math.random = realRandom;
+    assert(aiReflect < trainedReflect, `an AI-held Ward must not benefit from the player's trained tiers (got ${aiReflect}, trained player reflect was ${trainedReflect})`);
+    clearTimers();
+
+    // -- playable/visible: the Den's Skills panel trains it like any other shared skill -----
+    const sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 3; sv.skillPts = 3; sv.skillUpg = {};
+    H.refreshSkills();
+    const skillRows = document.getElementById('skillRows');
+    const wardRow = skillRows.children[H.SKILL_KEYS('ember').indexOf('ward')];
+    assert(wardRow.innerHTML.includes('Ward'), 'the Skills panel should list a Ward row');
+    wardRow.children[0].click();
+    assert(sv.skillUpg.ward === 1, `training Ward from the Den should raise its tier (got ${sv.skillUpg.ward})`);
+    assert(sv.skillPts === 2, 'training a skill should spend a skill point');
+
+    // -- bot-vs-bot turn integrity holds through a battle where the AI can cast Ward -----
+    clearTimers();
+    sv.dragonKey = 'ember'; sv.level = 3; sv.stage = 2; sv.exp = 0; sv.skillUpg = {};
+    H.startBattle(2);
+    const B = H.B;
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `Ward battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
     assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
     clearTimers();

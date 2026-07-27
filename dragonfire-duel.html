@@ -458,6 +458,7 @@ const SKILLS={
   mega:   {ic:'💥', name:'Mega Blast',   type:'attack', cost:30, base:95,  radius:78, spd0:3.4, spdK:.20, gMul:1.12, desc:'Huge slow blast, big crater.'},
   heal:   {ic:'💚', name:'Heal',         type:'instant',cost:35, desc:'Restore 30% HP. Ends turn.'},
   shield: {ic:'🛡', name:'Shield',       type:'instant',cost:20, desc:'Halve next damage taken. Ends turn.'},
+  ward:   {ic:'🪞', name:'Ward',         type:'instant',cost:25, desc:'Raise a ward — reflects a share of the next hit back at the attacker. Ends turn.'},
   /* signature skills — slot 1 */
   inferno:{ic:'☄',  name:'Inferno',      type:'attack', cost:40, base:80,  radius:64, spd0:4.0, spdK:.20, burn:3, desc:'Ignites the foe — burns for 3 turns.'},
   glacial:{ic:'❄',  name:'Glacial Maw',  type:'attack', cost:40, base:88,  radius:72, spd0:3.6, spdK:.22, gMul:1.3, freeze:1, desc:'Heavy ice slab — freezes the foe in place.'},
@@ -542,7 +543,10 @@ function elRel(selfEl,oppEl){
 function elMult(selfEl,oppEl){ const r=elRel(selfEl,oppEl); return r==='adv'?ELEM_ADV:r==='res'?ELEM_RES:1; }
 // Battle amplifiers: one-shot tactical items that bend a single turn's shot without ending it.
 const AMP_SURGE_MULT=1.3;
-const SKILL_KEYS=k=>['shot','twin','mega','heal','shield',DRAGONS[k].uniq[0],DRAGONS[k].uniq[1],DRAGONS[k].uniq[2]];
+const SKILL_KEYS=k=>['shot','twin','mega','heal','shield','ward',DRAGONS[k].uniq[0],DRAGONS[k].uniq[1],DRAGONS[k].uniq[2]];
+// Ward's reflect share: base fraction of the incoming hit sent back at the attacker,
+// scaled by the same skillMult(owner,'ward') tier curve attack skills already use.
+const WARD_REFLECT_PCT=0.35;
 // The 3rd signature unlocks well past the 2nd (level 4) so a late-ladder dragon still has
 // something to grow into instead of flatlining on the same two signatures forever.
 const UNIQ3_LEVEL=8;
@@ -1043,7 +1047,7 @@ class Dragon{
     this.col=D.col; this.col2=D.col2; this.belly=D.belly;
     this.x=x; this.y=groundAt(x); this.vy=0; this.air=false; this.fallFrom=0;
     this.facing=1;
-    this.status={shield:0,burn:0,frozen:0,poison:0}; this.moveLock=false;
+    this.status={shield:0,burn:0,frozen:0,poison:0,ward:0}; this.moveLock=false;
     this.selSkill='shot'; this.lastShot=null; this.lastImpact=null;
     this.flap=rand(0,TAU); this.hurtT=0; this.castT=0; this.dead=false;
   }
@@ -1116,6 +1120,7 @@ class Dragon{
     ctx.restore();
     let icons='';
     if(this.status.shield>0)icons+='🛡';
+    if(this.status.ward>0)icons+='🪞';
     if(this.status.burn>0)icons+='🔥';
     if(this.status.poison>0)icons+='☠';
     if(this.status.frozen>0||this.moveLock)icons+='❄';
@@ -1316,6 +1321,7 @@ function startTurn(d){
   d.stamina=d.maxstam;
   d.facing=(other(d).x>d.x)?1:-1;
   if(d.status.shield>0)d.status.shield--;
+  if(d.status.ward>0)d.status.ward--;
   d.moveLock=false;
   if(d.status.frozen>0){d.status.frozen--; d.moveLock=true; floatTxt(d.x,d.y-78,'Frozen!','#bdefff'); }
   if(d.status.burn>0){
@@ -1377,6 +1383,9 @@ function castInstant(d,key){
   }else if(key==='shield'){
     d.status.shield=1; floatTxt(d.x,d.y-84,'Shield!','#9cd0ff'); sfx.shield();
     burst(d.x,d.y-30,['#9cd0ff','#ffffff'],14,2.4,{grav:0});
+  }else if(key==='ward'){
+    d.status.ward=1; floatTxt(d.x,d.y-84,'Ward!','#ffb3f0'); sfx.shield();
+    burst(d.x,d.y-30,['#ffb3f0','#ffffff'],14,2.4,{grav:0});
   }else if(key==='blink'){
     burst(d.x,d.y-26,['#9b5de5','#46297a','#ffffff'],16,3,{grav:0});
     const nx=clamp(d.x+d.facing*(SKILLS.blink.blink||240),40,WORLD.w-40);
@@ -1475,9 +1484,19 @@ function dealDamage(att,tgt,base,falloff,skillKey){
     const block=0.5-(!tgt.isAI&&B.modeType==='campaign'?(save.skillUpg.shield||0)*0.06:0);
     dmg*=Math.max(0.2,block); floatTxt(tgt.x,tgt.y-104,'Blocked!','#9cd0ff');
   }
+  let reflect=0;
+  if(tgt!==att && tgt.status.ward>0){
+    tgt.status.ward=0;
+    reflect=Math.max(1,Math.round(dmg*WARD_REFLECT_PCT*skillMult(tgt,'ward')));
+    floatTxt(tgt.x,tgt.y-104,'Warded!','#ffb3f0');
+  }
   dmg=Math.max(1,Math.round(dmg));
   tgt.hp=Math.max(0,tgt.hp-dmg);
   tgt.hurtT=.45; tgt.fallFrom=tgt.y; tgt.vy=-2.6; tgt.air=true; tgt.y-=1.2;
+  if(reflect>0){
+    att.hp=Math.max(0,att.hp-reflect); att.hurtT=.3;
+    floatTxt(att.x,att.y-86,'−'+reflect+' reflected','#ffb3f0'); sfx.crit();
+  }
   if(elRelation==='adv')floatTxt(tgt.x,tgt.y-104,'Effective!','#ffcf5c');
   else if(elRelation==='res')floatTxt(tgt.x,tgt.y-104,'Resisted','#8fa3c9');
   floatTxt(tgt.x,tgt.y-86,(crit?'CRIT −':'−')+dmg, tgt===B.p?'#ff5a4d':'#ffd23f', crit);
@@ -1661,10 +1680,12 @@ function aiThink(){
   if(B.mode!=='battle'||B.state!=='anim'||B.active!==B.e)return;
   const me=B.e,foe=B.p;
   me.facing=foe.x>me.x?1:-1;
-  // Enraged alphas fight recklessly: no healing/shielding, favor big attacks.
+  // Enraged alphas fight recklessly: no healing/shielding/warding, favor big attacks.
   if(!me.enraged){
     if(me.hp<me.maxhp*0.35 && me.mp>=SKILLS.heal.cost && Math.random()<0.65){castInstant(me,'heal');return;}
-    if(me.hp<me.maxhp*0.5 && !me.status.shield && me.mp>=SKILLS.shield.cost && Math.random()<0.2){castInstant(me,'shield');return;}
+    if(me.hp<me.maxhp*0.5 && !me.status.shield && !me.status.ward && me.mp>=SKILLS.shield.cost && Math.random()<0.2){
+      castInstant(me, me.mp>=SKILLS.ward.cost?'ward':'shield'); return;
+    }
   }
   let skKey='shot';
   const D=DRAGONS[me.key], uniqs=[D.uniq[0]];
@@ -1831,7 +1852,7 @@ addEventListener('pointerdown',()=>ac(),{once:true});
 function buildSkillbar(d){
   const box=$('skills'); box.innerHTML='';
   SKILL_KEYS(d.key).forEach((key,i)=>{
-    const gate=i===6?4:(i===7?UNIQ3_LEVEL:0), locked=d.level<gate;
+    const gate=i===7?4:(i===8?UNIQ3_LEVEL:0), locked=d.level<gate;
     const sk=SKILLS[key];
     const b=document.createElement('button');
     b.className='skill clicky'+(sk.type==='instant'?' instant':'');
@@ -1932,7 +1953,7 @@ function refreshSkills(){
   const wrap=$('skillRows'); wrap.innerHTML='';
   for(const key of SKILL_KEYS(save.dragonKey)){
     const sk=SKILLS[key], tier=save.skillUpg[key]||0, maxed=tier>=3;
-    const effect=key==='shield'?'block':(key==='heal'?'healing':'damage');
+    const effect=key==='shield'?'block':(key==='heal'?'healing':(key==='ward'?'reflect':'damage'));
     const row=document.createElement('div'); row.className='shopRow';
     const desc=maxed?('Tier 3/3 — fully trained'):('Tier '+tier+'/3 → +10% '+effect);
     row.innerHTML='<div class="ic">'+sk.ic+'</div><div class="inf"><b>'+sk.name+'</b><span>'+desc+'</span></div>';
@@ -2390,6 +2411,7 @@ function setPlate(pre,d,suffix,opp){
   let s='';
   if(d.enraged)s+='😡 ';
   if(d.status.shield>0)s+='🛡 ';
+  if(d.status.ward>0)s+='🪞 ';
   if(d.status.burn>0)s+='🔥×'+d.status.burn+' ';
   if(d.status.poison>0)s+='☠×'+d.status.poison+' ';
   if(d.status.frozen>0||d.moveLock)s+='❄';
