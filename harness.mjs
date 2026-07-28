@@ -1709,6 +1709,105 @@ const flush = () => new Promise((r) => setImmediate(r));
     clearTimers();
   });
 
+  // -- TEST 24: a fifth gear line (elemental ward) — softens the disadvantaged matchup ----
+  await test('a fifth gear line (elemental ward) resolves onto the dragon, softens damage taken in an unfavorable matchup, is visible in the shop/Den, and persists', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+    sv.dragonKey = 'frost'; sv.level = 1; sv.stage = 1; sv.gold = 5000;
+    sv.gear = { fang: 0, scale: 0, charm: 0, talon: 0, ward: 0 };
+    H.B.modeType = 'campaign';
+
+    assert(H.GEAR.ward, 'GEAR should define a fifth, elemental-ward line');
+    assert(H.GEAR.ward.vals.length === 4 && H.GEAR.ward.cost.length === 3,
+      'elemental ward should have 3 buyable tiers, matching the existing gear shape');
+
+    // -- resolves onto the dragon, distinct from the flat DEF line (scale) --
+    const dUnwarded = new H.Dragon('frost', 1, false, 300);
+    assert(dUnwarded.elemWard === 0, 'an unequipped dragon should resolve zero elemental ward');
+    sv.gear.ward = 1;
+    const dWarded = new H.Dragon('frost', 1, false, 300);
+    assert(dWarded.elemWard === H.GEAR.ward.vals[1],
+      `a tier-1 Aegis Ward should raise resolved elemWard to ${H.GEAR.ward.vals[1]} (got ${dWarded.elemWard})`);
+    assert(dWarded.def === dUnwarded.def, 'elemental ward should be distinct from the flat DEF gear line (scale), not a reskin of it');
+
+    // -- softens specifically the case where the attacker holds the elemental advantage --
+    const realRandom = H.Math.random;
+    H.Math.random = () => 0.5;   // pin rand()/crit rolls so only elemWard varies
+    const atk = new H.Dragon('ember', 5, true, 900);          // Fire — adv vs Toxin
+    const defNoWard = new H.Dragon('venom', 5, false, 300);   // Toxin, elemWard 0
+    const defWarded = new H.Dragon('venom', 5, false, 300);
+    defWarded.elemWard = H.GEAR.ward.vals[3];                 // fully-forged tier
+    defNoWard.hp = defNoWard.maxhp = 100000; defWarded.hp = defWarded.maxhp = 100000;
+    H.dealDamage(atk, defNoWard, 200, 1, 'shot');
+    H.dealDamage(atk, defWarded, 200, 1, 'shot');
+    H.Math.random = realRandom;
+    const dmgNoWard = 100000 - defNoWard.hp, dmgWarded = 100000 - defWarded.hp;
+    assert(dmgWarded < dmgNoWard,
+      `a warded dragon (${dmgWarded}) should take less damage from a disadvantaged matchup than an unwarded one (${dmgNoWard})`);
+
+    // -- a neutral matchup is untouched by elemental ward (it only softens the 'adv' case) --
+    H.Math.random = () => 0.5;
+    const neuNoWard = new H.Dragon('venom', 5, false, 300); neuNoWard.el = 'Earth';
+    const neuWarded = new H.Dragon('venom', 5, false, 300); neuWarded.el = 'Earth'; neuWarded.elemWard = H.GEAR.ward.vals[3];
+    neuNoWard.hp = neuNoWard.maxhp = 100000; neuWarded.hp = neuWarded.maxhp = 100000;
+    H.dealDamage(atk, neuNoWard, 200, 1, 'shot');
+    H.dealDamage(atk, neuWarded, 200, 1, 'shot');
+    H.Math.random = realRandom;
+    assert(100000 - neuNoWard.hp === 100000 - neuWarded.hp,
+      'elemental ward should not touch a neutral matchup, only a disadvantaged one');
+
+    // -- playable/visible: drive the real Den -> Shop -> buy -> close flow, not a reimplementation --
+    sv.gear.ward = 0; sv.gold = 5000; sv.record = H.blankRecord();
+    H.refreshDen();
+    document.getElementById('btnDenShop').click();          // opens the shop with shopReturn='den'
+    const gearRows = document.getElementById('gearRows');
+    assert(gearRows.children.length === Object.keys(H.GEAR).length, 'shop should list one row per GEAR line, including the new ward line');
+    const wardRow = gearRows.children.find(r => r.innerHTML.includes('Aegis Ward'));
+    assert(wardRow, 'the shop should show an Aegis Ward row');
+    const wardCost = H.GEAR.ward.cost[0];
+    wardRow.children[0].click();
+    assert(sv.gear.ward === 1, `buying via the shop UI should set the tier (got ${sv.gear.ward})`);
+    assert(sv.gold === 5000 - wardCost, `buying via the shop UI should spend its cost (got ${sv.gold})`);
+    document.getElementById('btnShopClose').click();        // back to the Den
+    const denGear = document.getElementById('denGear');
+    assert(denGear.innerHTML.includes('E.WARD T1'), `Den loadout should show the newly bought ward tier after closing the shop (got ${denGear.innerHTML})`);
+
+    // -- persistence --
+    H.persist();
+    sv.gear.ward = 0; sv.gold = -1;
+    await H.loadSave();
+    assert(sv.gear.ward === 1, `elemental ward tier should survive load (got ${sv.gear.ward})`);
+    assert(sv.gold === 5000 - wardCost, `gold should survive load (got ${sv.gold})`);
+
+    // -- bot-vs-bot turn integrity holds with elemental ward equipped in a mismatched battle --
+    clearTimers();
+    sv.dragonKey = 'venom'; sv.level = 5; sv.stage = 3; sv.exp = 0; sv.gear.ward = 3;
+    H.startBattle(3);
+    const B = H.B;
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `elemental-ward battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 2, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    clearTimers();
+  });
+
   /* ---- report ---- */
   console.log('\nDragonfire Duel — test harness\n' + '-'.repeat(48));
   let failed = 0;

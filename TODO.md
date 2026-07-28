@@ -724,7 +724,7 @@ not a spec.*
     "−95 reflected" on the attacker in the same screenshot (hp bars moved 520→248 and
     425→330 respectively).
 
-- [ ] **A fifth gear line: elemental ward.** `GEAR` covers ATK/DEF/AGI/LUK; nothing lets
+- [x] **A fifth gear line: elemental ward.** `GEAR` covers ATK/DEF/AGI/LUK; nothing lets
   a player build around the affinity system defensively the way stones build around it
   offensively.
   - *Intent:* a gear choice that specifically softens being on the wrong side of a bad
@@ -734,9 +734,38 @@ not a spec.*
     a reskin. 3 tiers, matching the existing gear shape.
   - *Extend:* `GEAR`, the stat application in the `Dragon` constructor, `elMult`'s
     application inside `dealDamage`, the Den loadout row from Tier B.
+  - *Shipped:* a fifth gear line, `GEAR.ward` ("Aegis Ward", 🔰), 3 tiers of `+10/20/35`
+    resolved onto a new `Dragon.elemWard` field (gated to the player's own dragon in
+    campaign, same `if(!isAI&&B.modeType==='campaign')` block as the other four lines —
+    no new gating logic needed). Went with the multiplier option from the Weigh list rather
+    than a flat damage-taken reduction, and kept it scoped tighter than "dampens `ELEM_RES`"
+    literally: a new `elemWardMult(tgt)` helper multiplies `dmg` by `1-elemWard/100` in
+    `dealDamage`, applied only when `elRelation==='adv'` (i.e. only when the *attacker*
+    holds the advantage against the wearer) — the actual "wrong side of a bad matchup" case
+    from the Intent — so it leaves a neutral or already-favorable-to-the-wearer matchup
+    untouched, distinct from `talon`'s crit line and from `scale`'s flat DEF. Buyable in the
+    existing shop (`refreshShop` already iterated `Object.keys(GEAR)`, so it picked up the
+    new line for free, same as `talon` did) and visible in the Den's existing loadout row
+    (`refreshDen`'s `Object.keys(GEAR)` loop, same free pickup). Guessed the 10/20/35 tier
+    values (matching `talon`'s pricing) and scoping the softening to the `'adv'` case only
+    rather than a broader "any elemental-relevant hit" rule — a future run could retune the
+    percentages or extend it to also blunt an attacker's crit against a warded target once
+    it's played at higher stages.
   - *Done when:* the gear is buyable, equipped, visible in the Den loadout, and measurably
     reduces resolved damage from an unfavorable matchup; harness asserts the resolved
     damage delta with/without it equipped and that it persists across save/load.
+    **Verified**: harness test 24 checks `GEAR.ward` resolves onto a real `Dragon`'s
+    `elemWard` field (and that it leaves `def` untouched, so it isn't a `scale` reskin),
+    that a fully-forged tier-3 ward measurably lowers `dealDamage`'s resolved output only
+    when the attacker holds the elemental advantage (a neutral matchup is provably
+    untouched, same before/after damage), drives the real Den → Shop → buy → close flow to
+    confirm the Den's loadout row reflects a purchased tier, round-trips the tier and gold
+    spend through save/load, and drives a full bot-vs-bot campaign battle with a
+    fully-forged ward equipped in a mismatched fight to completion with strict turn
+    alternation. Also confirmed live in Playwright/Chromium: the shop lists an "Aegis Ward"
+    row alongside the other four gear lines, buying it live drops gold 5000→4780 and the
+    row updates to "Tier 1 → 2: +20 E.WARD total", and the Den's loadout row shows
+    "🔰 E.WARD T1" after closing the shop (screenshots taken).
 
 - [ ] **A third battle amplifier: Scope.** Calm Wind and Overcharge (Tier D) proved the
   pattern; a third amplifier gives the player a real choice of which one to carry.

@@ -560,7 +560,11 @@ const GEAR={
   fang: {ic:'🗡', name:'Drake Fang', stat:'atk', lbl:'ATK', vals:[0,6,12,20], cost:[200,450,800]},
   scale:{ic:'🛡', name:'Iron Scale', stat:'def', lbl:'DEF', vals:[0,6,12,20], cost:[200,450,800]},
   charm:{ic:'🪶', name:'Gale Charm', stat:'agi', lbl:'AGI', vals:[0,8,16,26], cost:[150,350,650]},
-  talon:{ic:'🍀', name:'Lucky Talon', stat:'luk', lbl:'LUK', vals:[0,4,9,15], cost:[220,480,850]}
+  talon:{ic:'🍀', name:'Lucky Talon', stat:'luk', lbl:'LUK', vals:[0,4,9,15], cost:[220,480,850]},
+  // Elemental ward: percentage points shaved off an incoming hit specifically when the
+  // attacker holds the elemental advantage — a defensive answer to affinity distinct from
+  // talon's crit-adjacent LUK (see elemWardMult in dealDamage).
+  ward: {ic:'🔰', name:'Aegis Ward', stat:'elemWard', lbl:'E.WARD', vals:[0,10,20,35], cost:[220,480,850]}
 };
 
 /* ---------- magic stones ---------- */
@@ -672,14 +676,15 @@ function triggerBiomeWeather(){
 
 /* ---------- persistent save ---------- */
 function blankRecord(){ return {wins:0,losses:0,alphaWins:0,bestStage:1,lifeGold:0,lifeExp:0,grades:{S:0,A:0,B:0,C:0}}; }
-let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0},gear:{fang:0,scale:0,charm:0,talon:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones()};
+let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones()};
 const SAVE_KEY='dragonfire-duel-save';
 let storageOK=false;
 async function loadSave(){
   try{const r=await window.storage.get(SAVE_KEY);
     if(r&&r.value){const d=JSON.parse(r.value); if(d&&d.v===1){save=Object.assign(save,d);
-      if(!save.gear)save.gear={fang:0,scale:0,charm:0,talon:0};
+      if(!save.gear)save.gear={fang:0,scale:0,charm:0,talon:0,ward:0};
       if(typeof save.gear.talon!=='number')save.gear.talon=0;
+      if(typeof save.gear.ward!=='number')save.gear.ward=0;
       if(!save.record)save.record=blankRecord();
       if(!save.record.grades)save.record.grades={S:0,A:0,B:0,C:0};
       if(typeof save.skillPts!=='number')save.skillPts=0;
@@ -698,7 +703,7 @@ function persist(){
   try{ window.storage.set(SAVE_KEY,JSON.stringify(save)).catch(()=>{}); }catch(e){}
 }
 async function wipeSave(){
-  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0},gear:{fang:0,scale:0,charm:0,talon:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones()};
+  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones()};
   try{ await window.storage.delete(SAVE_KEY);}catch(e){}
 }
 
@@ -1035,11 +1040,13 @@ class Dragon{
     this.maxmp=st.mp; this.mp=this.maxmp;
     this.atk=Math.round(st.atk*handicap*(alpha?1.12:1));
     this.def=Math.round(st.def*handicap); this.agi=st.agi; this.luk=st.luk;
+    this.elemWard=0;
     if(!isAI&&B.modeType==='campaign'){
       this.atk+=GEAR.fang.vals[save.gear.fang||0];
       this.def+=GEAR.scale.vals[save.gear.scale||0];
       this.agi+=GEAR.charm.vals[save.gear.charm||0];
       this.luk+=GEAR.talon.vals[save.gear.talon||0];
+      this.elemWard=GEAR.ward.vals[save.gear.ward||0];
     }
     this.maxstam=90+this.agi; this.stamina=this.maxstam;
     this.enraged=false;
@@ -1472,12 +1479,16 @@ function skillMult(owner,key){
 }
 function ampMult(flag){ return flag?AMP_SURGE_MULT:1; }
 function effectiveAtk(d){ return Math.round(d.atk*(d.enraged?ENRAGE_ATK_MULT:1)*stoneMult(d)); }
+// Elemental ward gear softens specifically the case where the attacker holds the elemental
+// advantage against the wearer — a defensive answer to affinity, distinct from a flat DEF stat.
+function elemWardMult(tgt){ return 1-Math.min(1,(tgt.elemWard||0)/100); }
 function dealDamage(att,tgt,base,falloff,skillKey){
   const attAtk=effectiveAtk(att);
   const ratio=(attAtk*2)/(attAtk+tgt.def);
   let dmg=base*ratio*falloff*rand(0.92,1.08);
   const elRelation=(tgt!==att)?elRel(att.el,tgt.el):'neu';
   if(elRelation!=='neu')dmg*=elMult(att.el,tgt.el);
+  if(elRelation==='adv')dmg*=elemWardMult(tgt);
   let crit=false;
   if(tgt!==att && Math.random()*100 < 5+att.luk*0.4){crit=true; dmg*=1.5;}
   if(tgt.status.shield>0){
