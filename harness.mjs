@@ -208,7 +208,8 @@ function loadGame() {
       isDragonUnlocked, UNLOCK_REQS, buildCards,
       BOSS_HAZARDS, triggerBossHazard,
       get obstacles(){ return obstacles; }, BIOME_WEATHER, triggerBiomeWeather,
-      aiThink, buildSkillbar, UNIQ3_LEVEL, WARD_REFLECT_PCT
+      aiThink, buildSkillbar, UNIQ3_LEVEL, WARD_REFLECT_PCT,
+      rollWind, forecastWindDisplay, WIND_MAX
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -1804,6 +1805,99 @@ const flush = () => new Promise((r) => setImmediate(r));
     }
     assert(B.state === 'over', `elemental-ward battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
     assert(turnsSeen >= 2, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    clearTimers();
+  });
+
+  // -- TEST 26: a third battle amplifier, Scope ---------------------------------
+  await test('a third battle amplifier (Scope): buyable and capped, reveals the exact next-turn wind without ending the turn, and the bot-vs-bot sim stays green', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 3; sv.stage = 3; sv.gold = 1000; sv.amps = { calm: 0, surge: 0, scope: 0 };
+    H.B.modeType = 'campaign';
+
+    // -- buyable in the shop, capped at 2 ---------------------------------------
+    H.refreshShop();
+    const buyScope = document.getElementById('buyScope');
+    assert(buyScope.textContent === '140g' && !buyScope.disabled, 'Scope should be buyable at 140g with gold to spare');
+    buyScope.click(); buyScope.click();
+    assert(sv.amps.scope === 2, `buying Scope twice should reach the cap (got ${sv.amps.scope})`);
+    H.refreshShop();
+    assert(buyScope.textContent === 'MAX' && buyScope.disabled, 'Scope should show MAX and disable once capped');
+
+    // -- persistence -------------------------------------------------------------
+    H.persist();
+    sv.amps.scope = 0;
+    await H.loadSave();
+    assert(sv.amps.scope === 2, `Scope charge count should survive save/load (got ${sv.amps.scope})`);
+
+    // -- in battle: using it doesn't end the turn, and it's capped at once per turn --
+    sv.stage = 3;   // Frozen Reach (tundra) so the forecast can be checked against its gust hook too
+    H.startBattle(3);
+    let B = H.B;
+    let guard = 0;
+    while (B.state !== 'aim' && guard < 200) { tick(16); guard++; }
+    assert(B.state === 'aim' && B.active === B.p, 'the player should be aiming at the top of their turn');
+    assert(H.curBiomeKey === 'tundra', `expected stage 3 to land on the Frozen Reach (got ${H.curBiomeKey})`);
+
+    assert(B.windForecast === null, 'no forecast should be armed before Scope is used');
+    const btnScope = document.getElementById('btnItemScope');
+    btnScope.click();
+    assert(B.state === 'aim' && B.active === B.p, 'using Scope must not end the turn');
+    assert(sv.amps.scope === 1, `using Scope should consume one charge (got ${sv.amps.scope})`);
+    assert(B.usedItem.scope === true, 'Scope should be marked used for this turn');
+    assert(B.windForecast && B.windForecast.turn === B.turnNo + 1, `Scope should arm a forecast for the very next turn (got ${JSON.stringify(B.windForecast)}, current turn ${B.turnNo})`);
+    assert(Math.abs(B.windForecast.base) <= H.WIND_MAX, 'the forecasted base wind should be within the normal wind range');
+    const forecast = B.windForecast;
+
+    // -- a second use on the same turn is blocked even with a charge left --
+    btnScope.click();
+    assert(sv.amps.scope === 1 && B.windForecast === forecast, 'a second Scope use on the same turn should be blocked');
+
+    // -- the forecast is exact: rolling wind for the forecasted turn reproduces it verbatim --
+    B.turnNo = forecast.turn;
+    H.rollWind();
+    assert(B.wind === forecast.base, `rolling wind on the forecasted turn should reproduce the locked value exactly (expected ${forecast.base}, got ${B.wind})`);
+    assert(B.windForecast === null, 'the forecast should be consumed once its turn arrives');
+
+    // -- a stale (non-matching) turn number does not consume the forecast --
+    B.windForecast = { turn: 999, base: 0.01 };
+    B.turnNo = 5;
+    H.rollWind();
+    assert(B.windForecast !== null, 'a forecast for a turn that has not arrived yet should not be consumed');
+
+    // -- forecastWindDisplay predicts the Frozen Reach's deterministic gust on the forecasted turn --
+    const gustTurn = 8;   // a multiple of BIOME_WEATHER.tundra.every
+    const base = 0.02;
+    const displayed = H.forecastWindDisplay(base, gustTurn);
+    assert(Math.abs(displayed) > Math.abs(base), `a forecast landing on a gust turn should predict the gust multiplier being applied (base ${base}, displayed ${displayed})`);
+    const displayedOffTurn = H.forecastWindDisplay(base, gustTurn + 1);
+    assert(displayedOffTurn === base, 'a forecast landing off the gust cadence should predict the plain rolled value');
+
+    // -- bot-vs-bot turn integrity stays intact when Scope is stocked but unused --
+    sv.dragonKey = 'volt'; sv.level = 3; sv.exp = 0; sv.stage = 4; sv.amps = { calm: 0, surge: 0, scope: 2 };
+    H.startBattle(4);
+    B = H.B;
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `Scope-stocked battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
     clearTimers();
   });

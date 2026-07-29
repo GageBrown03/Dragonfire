@@ -64,6 +64,8 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 #windVal{font-family:var(--disp);font-weight:800;font-size:13px;color:var(--bone);background:var(--panel);
   border:1px solid var(--line);border-radius:8px;padding:1px 9px;letter-spacing:.05em;transition:color .3s,border-color .3s}
 #windVal.weatherActive{color:#ffb35e;border-color:#ffb35e}
+#windForecast{font-family:var(--disp);font-weight:700;font-size:10px;color:#bfe9ff;background:var(--panel);
+  border:1px solid #4aa3ff;border-radius:7px;padding:1px 8px;letter-spacing:.05em;margin-top:3px}
 #stageTag{font-size:10px;color:var(--mist);letter-spacing:.18em;text-transform:uppercase;margin-top:2px}
 
 #banner{position:absolute;top:24%;left:50%;transform:translate(-50%,-50%) scale(.9);font-family:var(--disp);
@@ -241,6 +243,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <div id="windBox">
       <div id="flagPole"><div id="flagCloth"></div></div>
       <div id="windVal">WIND 0</div>
+      <div id="windForecast" class="hidden">Next: —</div>
       <div id="stageTag">Stage 1</div>
     </div>
 
@@ -254,6 +257,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
           <button class="itemBtn clicky" id="btnItemMp" title="MP potion">🔮<span class="cnt" id="cntMp">0</span></button>
           <button class="itemBtn clicky" id="btnItemCalm" title="Calm Wind — zeroes wind this turn">🍃<span class="cnt" id="cntCalm">0</span></button>
           <button class="itemBtn clicky" id="btnItemSurge" title="Overcharge — next shot deals +30% damage">💥<span class="cnt" id="cntSurge">0</span></button>
+          <button class="itemBtn clicky" id="btnItemScope" title="Scope — reveals the exact wind for the opponent's next turn">🔭<span class="cnt" id="cntScope">0</span></button>
         </div>
         <div id="moveCtl">
           <button id="btnLeft" class="clicky">◀</button><button id="btnRight" class="clicky">▶</button>
@@ -374,6 +378,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <div class="shopHead">Amplifiers — bend one shot, don't end your turn</div>
     <div class="shopRow"><div class="ic">🍃</div><div class="inf"><b>Calm Wind</b><span>Zeroes the wind for this turn's shot. Doesn't end your turn. Max 2.</span></div><button id="buyCalm">120g</button></div>
     <div class="shopRow"><div class="ic">💥</div><div class="inf"><b>Overcharge</b><span>Your next shot this turn deals +30% damage. Doesn't end your turn. Max 2.</span></div><button id="buySurge">160g</button></div>
+    <div class="shopRow"><div class="ic">🔭</div><div class="inf"><b>Scope</b><span>Reveals the exact wind for the opponent's next turn. Doesn't end your turn. Max 2.</span></div><button id="buyScope">140g</button></div>
     <div class="shopHead">Gear — permanent (campaign)</div>
     <div id="gearRows"></div>
     <div class="rowBtns"><button class="bigBtn" id="btnShopClose" style="font-size:14px;padding:10px 26px">Close</button></div>
@@ -676,7 +681,7 @@ function triggerBiomeWeather(){
 
 /* ---------- persistent save ---------- */
 function blankRecord(){ return {wins:0,losses:0,alphaWins:0,bestStage:1,lifeGold:0,lifeExp:0,grades:{S:0,A:0,B:0,C:0}}; }
-let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones()};
+let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones()};
 const SAVE_KEY='dragonfire-duel-save';
 let storageOK=false;
 async function loadSave(){
@@ -689,9 +694,10 @@ async function loadSave(){
       if(!save.record.grades)save.record.grades={S:0,A:0,B:0,C:0};
       if(typeof save.skillPts!=='number')save.skillPts=0;
       if(!save.skillUpg)save.skillUpg={};
-      if(!save.amps)save.amps={calm:0,surge:0};
+      if(!save.amps)save.amps={calm:0,surge:0,scope:0};
       if(typeof save.amps.calm!=='number')save.amps.calm=0;
       if(typeof save.amps.surge!=='number')save.amps.surge=0;
+      if(typeof save.amps.scope!=='number')save.amps.scope=0;
       if(!save.stones)save.stones=blankStones();
       if(!save.stones.inv)save.stones.inv={};
       if(!Array.isArray(save.stones.sockets)||save.stones.sockets.length!==STONE_SOCKETS)save.stones.sockets=[null,null,null];}}
@@ -703,7 +709,7 @@ function persist(){
   try{ window.storage.set(SAVE_KEY,JSON.stringify(save)).catch(()=>{}); }catch(e){}
 }
 async function wipeSave(){
-  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones()};
+  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones()};
   try{ await window.storage.delete(SAVE_KEY);}catch(e){}
 }
 
@@ -1229,10 +1235,18 @@ class Proj{
    ===================================================================== */
 const B={mode:'title',modeType:'campaign',state:'idle',stage:1,side:false,p:null,e:null,active:null,wind:0,
   aim:{ang:45,pow:0,charging:false,skill:'shot'},
-  queue:[],projs:[],zones:[],usedItem:{hp:false,mp:false,calm:false,surge:false},ampSurge:false,aiPlan:null,turnNo:0,hinted:false,duelKeys:null};
+  queue:[],projs:[],zones:[],usedItem:{hp:false,mp:false,calm:false,surge:false,scope:false},ampSurge:false,aiPlan:null,turnNo:0,hinted:false,duelKeys:null,windForecast:null};
 const other=d=>d===B.p?B.e:B.p;
 
-function rollWind(){ B.wind=rand(-WIND_MAX,WIND_MAX); }
+function rollWind(){
+  if(B.windForecast&&B.windForecast.turn===B.turnNo){ B.wind=B.windForecast.base; B.windForecast=null; }
+  else B.wind=rand(-WIND_MAX,WIND_MAX);
+}
+function forecastWindDisplay(base,turn){
+  const w=BIOME_WEATHER[curBiomeKey];
+  if(w&&w.kind==='gust'&&turn%w.every===0) return clamp(base*w.mult,-WIND_MAX*1.8,WIND_MAX*1.8);
+  return base;
+}
 function windDisp(){ return Math.round(B.wind/WIND_MAX*10); }
 function windTxt(w){ const v=Math.round(w/WIND_MAX*10); return v===0?'0':Math.abs(v)+(v>0?' →':' ←'); }
 
@@ -1242,7 +1256,7 @@ function setupField(biomeKey,stage){
   makeObstacles(nObs,curBiome.obst,stage);
   makeCrates(stage);
   initAmbient(curBiome.amb);
-  B.queue=[]; B.projs=[]; B.zones=[]; B.aiPlan=null; B.turnNo=0;
+  B.queue=[]; B.projs=[]; B.zones=[]; B.aiPlan=null; B.turnNo=0; B.windForecast=null;
   parts.length=0; floats.length=0;
 }
 function enterBattleUI(tagText){
@@ -1360,7 +1374,7 @@ function startTurn(d){
   d.mp=Math.min(d.maxmp,d.mp+14);
   camFocus(d.x,d.y-110);
   if(!d.isAI){
-    if(B.modeType==='campaign')B.usedItem={hp:false,mp:false,calm:false,surge:false};
+    if(B.modeType==='campaign')B.usedItem={hp:false,mp:false,calm:false,surge:false,scope:false};
     B.aim.pow=0; B.aim.charging=false;
     if(d.lastShot)B.aim.ang=d.lastShot.ang;
     buildSkillbar(d);
@@ -1906,13 +1920,18 @@ function useAmp(kind){
   if(B.usedItem[kind]||save.amps[kind]<=0)return;
   if(kind==='calm'){
     B.wind=0; floatTxt(B.p.x,B.p.y-84,'Wind calmed!','#bfe9ff'); sfx.whirl();
-  }else{
+  }else if(kind==='surge'){
     B.ampSurge=true; floatTxt(B.p.x,B.p.y-84,'Overcharged!','#ffd23f'); sfx.crit();
+  }else{
+    const turn=B.turnNo+1, base=rand(-WIND_MAX,WIND_MAX);
+    B.windForecast={turn,base};
+    floatTxt(B.p.x,B.p.y-84,'Scoped!','#bfe9ff'); sfx.whirl();
   }
   save.amps[kind]--; B.usedItem[kind]=true; persist();
 }
 $('btnItemCalm').addEventListener('click',()=>useAmp('calm'));
 $('btnItemSurge').addEventListener('click',()=>useAmp('surge'));
+$('btnItemScope').addEventListener('click',()=>useAmp('scope'));
 
 /* ---------- modals, shop, screens ---------- */
 function showModal(id){hideModals(); $(id).classList.remove('hidden');}
@@ -1923,9 +1942,10 @@ function refreshShop(){
   const bh=$('buyHp'), bm=$('buyMp');
   bh.textContent=save.potions.hp>=3?'MAX':'150g'; bh.disabled=save.potions.hp>=3||save.gold<150;
   bm.textContent=save.potions.mp>=3?'MAX':'100g'; bm.disabled=save.potions.mp>=3||save.gold<100;
-  const bc=$('buyCalm'), bs=$('buySurge');
+  const bc=$('buyCalm'), bs=$('buySurge'), bsc=$('buyScope');
   bc.textContent=save.amps.calm>=2?'MAX':'120g'; bc.disabled=save.amps.calm>=2||save.gold<120;
   bs.textContent=save.amps.surge>=2?'MAX':'160g'; bs.disabled=save.amps.surge>=2||save.gold<160;
+  bsc.textContent=save.amps.scope>=2?'MAX':'140g'; bsc.disabled=save.amps.scope>=2||save.gold<140;
   const wrap=$('gearRows'); wrap.innerHTML='';
   for(const k of Object.keys(GEAR)){
     const g=GEAR[k], tier=save.gear[k]||0, maxed=tier>=3;
@@ -1955,6 +1975,7 @@ function buyAmp(kind,cost){
 }
 $('buyCalm').addEventListener('click',()=>buyAmp('calm',120));
 $('buySurge').addEventListener('click',()=>buyAmp('surge',160));
+$('buyScope').addEventListener('click',()=>buyAmp('scope',140));
 $('btnShopV').addEventListener('click',()=>{shopReturn='mVictory'; refreshShop(); showModal('mShop');});
 $('btnShopT').addEventListener('click',()=>{shopReturn='title'; refreshShop(); showModal('mShop');});
 $('btnDenShop').addEventListener('click',()=>{sfx.click(); shopReturn='den'; refreshShop(); showModal('mShop');});
@@ -2436,6 +2457,11 @@ function syncHUD(){
   const windEl=$('windVal');
   windEl.textContent=(B.weatherActive?'⚠ ':'')+'WIND '+windTxt(B.wind);
   windEl.classList.toggle('weatherActive',!!B.weatherActive);
+  const fc=$('windForecast');
+  if(B.windForecast){
+    fc.textContent='Next: '+windTxt(forecastWindDisplay(B.windForecast.base,B.windForecast.turn));
+    fc.classList.remove('hidden');
+  }else fc.classList.add('hidden');
   const cloth=$('flagCloth');
   cloth.style.width=(16+wmag*42)+'px';
   cloth.style.transform='scaleX('+(dir*(0.25+wmag*0.75)).toFixed(2)+') skewY('+(Math.sin(tGlobal*6)*4*wmag).toFixed(1)+'deg)';
@@ -2456,9 +2482,10 @@ function syncHUD(){
   $('cntHp').textContent=save.potions.hp; $('cntMp').textContent=save.potions.mp;
   $('btnItemHp').disabled=!itemsOn||B.usedItem.hp||save.potions.hp<=0;
   $('btnItemMp').disabled=!itemsOn||B.usedItem.mp||save.potions.mp<=0;
-  $('cntCalm').textContent=save.amps.calm; $('cntSurge').textContent=save.amps.surge;
+  $('cntCalm').textContent=save.amps.calm; $('cntSurge').textContent=save.amps.surge; $('cntScope').textContent=save.amps.scope;
   $('btnItemCalm').disabled=!itemsOn||B.usedItem.calm||save.amps.calm<=0;
   $('btnItemSurge').disabled=!itemsOn||B.usedItem.surge||save.amps.surge<=0;
+  $('btnItemScope').disabled=!itemsOn||B.usedItem.scope||save.amps.scope<=0;
   const can=canAct();
   ['btnLeft','btnRight','btnAngUp','btnAngDown','btnFire'].forEach(id=>$(id).disabled=!can);
   const actor=(B.active&&!B.active.isAI)?B.active:B.p;
