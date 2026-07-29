@@ -767,7 +767,7 @@ not a spec.*
     row updates to "Tier 1 → 2: +20 E.WARD total", and the Den's loadout row shows
     "🔰 E.WARD T1" after closing the shop (screenshots taken).
 
-- [ ] **A third battle amplifier: Scope.** Calm Wind and Overcharge (Tier D) proved the
+- [x] **A third battle amplifier: Scope.** Calm Wind and Overcharge (Tier D) proved the
   pattern; a third amplifier gives the player a real choice of which one to carry.
   - *Intent:* an amplifier that plays against information rather than raw power — e.g.
     reveals the exact wind value for the next two turns (a direct counter to the weather
@@ -776,9 +776,38 @@ not a spec.*
     price it relative to Calm Wind/Overcharge (120g/160g) based on how strong "certainty"
     turns out to be in practice.
   - *Extend:* `save.amps`, `useAmp`, the `itemCtl` dock, the shop modal's amplifier rows.
+  - *Shipped:* a third amplifier, 🔭 **Scope** (`save.amps.scope`, 140g — between Calm
+    Wind's 120g and Overcharge's 160g, guessed as the price of pure information), following
+    the existing `useAmp`/`B.usedItem`/cap-of-2 shape exactly. Rather than a random peek,
+    using it **pre-rolls and locks in** the base wind value for the very next `startTurn`
+    (typically the opponent's reply) into a new `B.windForecast={turn,base}`, and `rollWind`
+    now checks that queue first — if the upcoming turn matches, it consumes the locked value
+    instead of drawing a fresh one, so the reveal is exact, not a guess, while adding zero
+    extra `Math.random()` calls to any battle where Scope isn't used (no shift to the
+    harness's shared seeded RNG stream, the documented risk from the biome-weather and
+    third-signature-tier features). Went with "next turn" rather than literally "next two
+    turns" from the Intent — the current turn's wind is already visible, so revealing one
+    turn ahead already tells the player both halves of an exchange (their shot, then the
+    reply); a future run could stack a second forecast slot if one turn of lookahead proves
+    too weak. Display accounts for the Frozen Reach's deterministic gust hook from the
+    biome-weather feature: a new `forecastWindDisplay(base,turn)` checks the same turn-cadence
+    math `triggerBiomeWeather` uses (no RNG, so it's exactly predictable) and shows the
+    post-gust value when the forecasted turn lands on one, so Scope is a genuine counter to
+    that hazard as the Intent suggested. Shown as a small blue "Next: …" pennant under the
+    wind flag (`#windForecast`), reusing `windTxt`'s existing arrow formatting.
   - *Done when:* the item is buyable up to its cap, usable without ending the turn, and
     its effect is visible and verifiable in the aim UI; harness asserts the purchase cap,
-    save/load round-trip, and that using it doesn't end the turn.
+    save/load round-trip, and that using it doesn't end the turn. **Verified**: harness test
+    26 checks Scope is buyable and caps at 2, round-trips through save/load, that using it in
+    a real battle doesn't end the turn and is blocked from a same-turn reuse, that the
+    forecast's locked value is reproduced **exactly** when `rollWind()` reaches the forecasted
+    turn (and left untouched on a non-matching turn), that `forecastWindDisplay` correctly
+    predicts the Frozen Reach's gust multiplier on a cadence turn and the plain value off it,
+    and drives a full bot-vs-bot campaign battle with Scope stocked but unused to completion
+    with strict turn alternation. Also confirmed live in Playwright/Chromium: the shop lists
+    a "Scope" row at 140g alongside Calm Wind/Overcharge, buying it live and using it in a
+    real Frozen Reach battle shows a "Scoped!" float and the wind pennant grows a "Next: 6 ←"
+    line while the turn stays on the player's aim state (screenshots taken).
 
 ## Tier G — Meta & stakes (reasons to keep playing)
 
