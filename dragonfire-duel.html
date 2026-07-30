@@ -332,6 +332,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
       <button class="subBtn" id="btnDenShop">Shop</button>
       <button class="subBtn" id="btnDenSkills">Skills</button>
       <button class="subBtn" id="btnDenStones">Stones</button>
+      <button class="subBtn" id="btnDenAch">Achievements</button>
       <button class="subBtn" id="btnDenTitle">Title</button>
     </div>
   </div>
@@ -344,6 +345,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <div class="gain" id="vGold">+0 Gold</div>
     <p class="grade" id="vGrade"></p>
     <p id="vStone" style="color:var(--mist)"></p>
+    <p id="vAch" style="color:var(--gold)"></p>
     <p id="vLvl" style="color:var(--gold)"></p>
     <div class="rowBtns">
       <button id="btnShopV">Shop</button>
@@ -399,6 +401,13 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <div class="shopHead">Inventory</div>
     <div id="stoneRows"></div>
     <div class="rowBtns"><button class="bigBtn" id="btnStonesClose" style="font-size:14px;padding:10px 26px">Close</button></div>
+  </div></div>
+
+  <div class="modal hidden" id="mAch"><div class="box">
+    <h2 style="color:var(--gold)">ACHIEVEMENTS</h2>
+    <p id="achCount" style="color:var(--mist)"></p>
+    <div id="achRows"></div>
+    <div class="rowBtns"><button class="bigBtn" id="btnAchClose" style="font-size:14px;padding:10px 26px">Close</button></div>
   </div></div>
 
   <div class="modal hidden" id="mHelp"><div class="box">
@@ -681,7 +690,7 @@ function triggerBiomeWeather(){
 
 /* ---------- persistent save ---------- */
 function blankRecord(){ return {wins:0,losses:0,alphaWins:0,bestStage:1,lifeGold:0,lifeExp:0,grades:{S:0,A:0,B:0,C:0}}; }
-let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones()};
+let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{}};
 const SAVE_KEY='dragonfire-duel-save';
 let storageOK=false;
 async function loadSave(){
@@ -700,7 +709,8 @@ async function loadSave(){
       if(typeof save.amps.scope!=='number')save.amps.scope=0;
       if(!save.stones)save.stones=blankStones();
       if(!save.stones.inv)save.stones.inv={};
-      if(!Array.isArray(save.stones.sockets)||save.stones.sockets.length!==STONE_SOCKETS)save.stones.sockets=[null,null,null];}}
+      if(!Array.isArray(save.stones.sockets)||save.stones.sockets.length!==STONE_SOCKETS)save.stones.sockets=[null,null,null];
+      if(!save.achieved)save.achieved={};}}
     storageOK=true;
   }catch(e){ storageOK=(typeof window.storage!=='undefined'); }
 }
@@ -709,7 +719,7 @@ function persist(){
   try{ window.storage.set(SAVE_KEY,JSON.stringify(save)).catch(()=>{}); }catch(e){}
 }
 async function wipeSave(){
-  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones()};
+  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{}};
   try{ await window.storage.delete(SAVE_KEY);}catch(e){}
 }
 
@@ -1618,6 +1628,32 @@ function huntGrade(turns,hpPct){
   for(const cand of HUNT_GRADES){ if(score>=cand.min){ g=cand; break; } }
   return {grade:g.grade,bonus:g.bonus,note:g.note,score};
 }
+// One-off milestone payouts derived entirely from save.record, which victory() already
+// keeps up to date. Each fires exactly once per save (tracked in save.achieved).
+const ACHIEVEMENTS=[
+  {id:'firstWin',name:'First Blood',ic:'🏅',desc:'Win your first battle.',reward:{gold:100},check:r=>r.wins>=1},
+  {id:'firstAlpha',name:'Boss Slayer',ic:'👑',desc:'Fell your first alpha boss.',reward:{gold:200,skillPts:1},check:r=>r.alphaWins>=1},
+  {id:'firstS',name:'Flawless',ic:'✨',desc:'Earn your first S-grade hunt.',reward:{gold:150},check:r=>r.grades.S>=1},
+  {id:'tenWins',name:'Seasoned Hunter',ic:'⚔️',desc:'Win 10 battles.',reward:{gold:300},check:r=>r.wins>=10},
+  {id:'stage10',name:'Deep Ladder',ic:'🪜',desc:'Reach stage 10.',reward:{gold:250,skillPts:1},check:r=>r.bestStage>=10},
+  {id:'threeAlphas',name:'Trophy Hunter',ic:'🏆',desc:'Fell 3 alpha bosses.',reward:{gold:400,skillPts:1},check:r=>r.alphaWins>=3}
+];
+function achRewardText(rw){
+  const parts=[]; if(rw.gold)parts.push('+'+rw.gold+' Gold'); if(rw.skillPts)parts.push('+'+rw.skillPts+' skill point'+(rw.skillPts>1?'s':''));
+  return parts.join(' ');
+}
+function checkAchievements(){
+  const earned=[];
+  for(const a of ACHIEVEMENTS){
+    if(save.achieved[a.id])continue;
+    if(!a.check(save.record))continue;
+    save.achieved[a.id]=true;
+    save.gold+=a.reward.gold||0; save.skillPts+=a.reward.skillPts||0;
+    earned.push(a);
+  }
+  if(earned.length)persist();
+  return earned;
+}
 function victory(){
   B.state='over'; deathFX(B.e); sfx.win();
   const alpha=B.e.alpha, side=B.side;
@@ -1642,10 +1678,12 @@ function victory(){
     stoneMsg='Found a '+stoneLabel(B.e.el,tier)+'!';
   }
   persist();
+  const newAch=checkAchievements();
   $('vExp').textContent='+'+exp+' EXP'; $('vGold').textContent='+'+gold+' Gold'+(alpha?' + 1 bonus skill point':'');
   $('vGrade').textContent='Hunt Grade '+hg.grade+' — '+hg.note+(hg.bonus>0?' (+'+Math.round(hg.bonus*100)+'% bonus applied)':'');
   $('vGrade').className='grade grade-'+hg.grade;
   $('vStone').textContent=stoneMsg;
+  $('vAch').textContent=newAch.length?newAch.map(a=>a.ic+' Achievement: '+a.name+' ('+achRewardText(a.reward)+')').join(' · '):'';
   let lvTxt=ups?('LEVEL UP! Now level '+save.level+' — stats raised, +'+ups+' skill point'+(ups>1?'s':'')+' to spend in the Den.'):'';
   if(ups&&save.level>=4&&save.level-ups<4)lvTxt+=' Second signature skill unlocked!';
   if(ups&&save.level>=UNIQ3_LEVEL&&save.level-ups<UNIQ3_LEVEL)lvTxt+=' Third signature skill unlocked!';
@@ -2041,6 +2079,21 @@ function refreshStones(){
 }
 $('btnDenStones').addEventListener('click',()=>{sfx.click(); refreshStones(); showModal('mStones');});
 $('btnStonesClose').addEventListener('click',()=>{sfx.click(); hideModals(); refreshDen();});
+function refreshAch(){
+  const earnedCount=ACHIEVEMENTS.filter(a=>save.achieved[a.id]).length;
+  $('achCount').textContent=earnedCount+'/'+ACHIEVEMENTS.length+' earned';
+  const wrap=$('achRows'); wrap.innerHTML='';
+  for(const a of ACHIEVEMENTS){
+    const got=!!save.achieved[a.id];
+    const row=document.createElement('div'); row.className='shopRow';
+    row.style.opacity=got?'1':'.55';
+    row.innerHTML='<div class="ic">'+(got?a.ic:'🔒')+'</div><div class="inf"><b>'+a.name+'</b><span>'+a.desc+' — '+achRewardText(a.reward)+'</span></div>'+
+      '<span style="color:'+(got?'var(--gold)':'var(--mist)')+';font-size:12px;white-space:nowrap;padding:0 6px">'+(got?'Earned':'Locked')+'</span>';
+    wrap.appendChild(row);
+  }
+}
+$('btnDenAch').addEventListener('click',()=>{sfx.click(); refreshAch(); showModal('mAch');});
+$('btnAchClose').addEventListener('click',()=>{sfx.click(); hideModals();});
 $('btnDenNext').addEventListener('click',()=>{sfx.click(); startBattle(save.stage);});
 $('btnDenSide').addEventListener('click',()=>{sfx.click(); startSideHunt();});
 $('btnDenTitle').addEventListener('click',()=>{sfx.click(); goTitle();});
@@ -2106,7 +2159,8 @@ function refreshDen(){
     '<span><b>'+rec.alphaWins+'</b> alphas felled</span>'+
     '<span>best stage <b>'+rec.bestStage+'</b></span>'+
     '<span><b>'+rec.lifeGold+'g</b> earned</span>'+
-    '<span title="Hunt grades earned">'+['S','A','B','C'].map(g=>'<b>'+rec.grades[g]+'</b>'+g).join(' ')+'</span>';
+    '<span title="Hunt grades earned">'+['S','A','B','C'].map(g=>'<b>'+rec.grades[g]+'</b>'+g).join(' ')+'</span>'+
+    '<span title="Achievements earned">🏆 <b>'+ACHIEVEMENTS.filter(a=>save.achieved[a.id]).length+'</b>/'+ACHIEVEMENTS.length+'</span>';
   $('denGear').innerHTML=Object.keys(GEAR).map(k=>{
     const g=GEAR[k], tier=save.gear[k]||0;
     return '<span title="'+g.name+'">'+g.ic+' '+g.lbl+' T'+tier+'</span>';

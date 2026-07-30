@@ -209,7 +209,8 @@ function loadGame() {
       BOSS_HAZARDS, triggerBossHazard,
       get obstacles(){ return obstacles; }, BIOME_WEATHER, triggerBiomeWeather,
       aiThink, buildSkillbar, UNIQ3_LEVEL, WARD_REFLECT_PCT,
-      rollWind, forecastWindDisplay, WIND_MAX
+      rollWind, forecastWindDisplay, WIND_MAX,
+      ACHIEVEMENTS, checkAchievements, refreshAch, achRewardText
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -575,6 +576,10 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(enragedDmg > calmDmg, `enraged boss should deal more damage than a calm one (calm ${calmDmg}, enraged ${enragedDmg})`);
 
     // -- reward: an alpha win grants a guaranteed bonus skill point ------------
+    // Pre-earn every achievement so this fresh save's first alpha win can't also trigger
+    // "firstAlpha"/"threeAlphas" (each of which also pays a skill point) — that stacking
+    // is real and covered by the achievements test; here we isolate the alpha-only bonus.
+    for (const a of H.ACHIEVEMENTS) sv.achieved[a.id] = true;
     sv.dragonKey = 'ember'; sv.level = 50; sv.exp = 0; sv.stage = 5; sv.skillPts = 0; // level 50 so no EXP level-up muddies the count
     H.startBattle(5);
     let B = H.B;
@@ -1899,6 +1904,106 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(B.state === 'over', `Scope-stocked battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
     assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
+    clearTimers();
+  });
+
+  // -- TEST 27: achievement / milestone track --
+  await test('achievements: fire once per milestone off save.record, pay out, are visible in the Den, and the bot-vs-bot sim stays green', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 1; sv.gold = 500; sv.stage = 1;
+
+    assert(H.ACHIEVEMENTS.length >= 3, `at least 3 achievements should exist (got ${H.ACHIEVEMENTS.length})`);
+    for (const a of H.ACHIEVEMENTS) {
+      assert(a.id && a.name && typeof a.check === 'function' && a.reward, `every achievement needs an id/name/check/reward (bad entry: ${JSON.stringify(a)})`);
+    }
+
+    // -- a fresh record earns nothing --
+    assert(H.checkAchievements().length === 0, 'a fresh save should not earn any achievement yet');
+    assert(Object.keys(sv.achieved).length === 0, 'save.achieved should start empty');
+
+    // -- crossing a milestone earns exactly that achievement, once, and pays its reward --
+    sv.record.wins = 1;
+    const goldBefore = sv.gold, ptsBefore = sv.skillPts;
+    const earned = H.checkAchievements();
+    assert(earned.length === 1 && earned[0].id === 'firstWin', `crossing 1 win should earn "firstWin" (got ${JSON.stringify(earned.map(a => a.id))})`);
+    assert(sv.achieved.firstWin === true, 'firstWin should be recorded in save.achieved');
+    const want = (H.ACHIEVEMENTS.find(a => a.id === 'firstWin')).reward;
+    assert(sv.gold === goldBefore + (want.gold || 0), `the reward gold should be credited (expected +${want.gold}, got ${sv.gold - goldBefore})`);
+    assert(sv.skillPts === ptsBefore + (want.skillPts || 0), 'the reward skill points should be credited');
+
+    // -- it does not re-fire on a second identical check --
+    const goldAfter = sv.gold;
+    assert(H.checkAchievements().length === 0, 'an already-earned achievement should not fire again');
+    assert(sv.gold === goldAfter, 'gold should not be paid out twice for the same achievement');
+
+    // -- earning multiple milestones at once reports all of them --
+    sv.record.alphaWins = 3; sv.record.grades.S = 1;
+    const multi = H.checkAchievements();
+    const ids = multi.map(a => a.id).sort();
+    assert(ids.includes('firstAlpha') && ids.includes('firstS') && ids.includes('threeAlphas'), `crossing 3 milestones at once should report all of them (got ${JSON.stringify(ids)})`);
+
+    // -- earned achievements survive save then load --
+    await H.persist();
+    sv.achieved = {};
+    await H.loadSave();
+    assert(sv.achieved.firstWin === true && sv.achieved.threeAlphas === true, `earned achievements should survive save/load (got ${JSON.stringify(sv.achieved)})`);
+
+    // -- visible in the Den's Achievements panel --
+    H.refreshAch();
+    assert(/\d+\/\d+ earned/.test(H.$('achCount').textContent), `achCount should read like "N/M earned" (got "${H.$('achCount').textContent}")`);
+    assert(H.$('achRows').children.length === H.ACHIEVEMENTS.length, 'every achievement should render a row in the Den panel');
+
+    // -- a real victory() that crosses a milestone shows it on the victory modal --
+    await H.wipeSave();
+    const sv2 = H.save;
+    sv2.dragonKey = 'ember'; sv2.level = 1; sv2.exp = 0; sv2.gold = 100; sv2.stage = 2;
+    H.startBattle(2);
+    let B = H.B;
+    B.turnNo = 3; B.p.hp = B.p.maxhp; B.e.hp = 0;
+    H.checkEnd();
+    assert(sv2.record.wins === 1, 'the real victory should have tallied the first win');
+    assert(sv2.achieved.firstWin === true, 'the real victory should have earned firstWin via save.record');
+    assert(H.$('vAch').textContent.includes('First Blood'), `the victory modal should call out the newly earned achievement (got "${H.$('vAch').textContent}")`);
+    clearTimers();
+
+    // -- winning again does not re-show/re-pay the already-earned achievement --
+    sv2.stage = 3;
+    H.startBattle(3);
+    B = H.B;
+    B.turnNo = 3; B.p.hp = B.p.maxhp; B.e.hp = 0;
+    H.checkEnd();
+    assert(H.$('vAch').textContent === '', `a repeat win should not re-announce an already-earned achievement (got "${H.$('vAch').textContent}")`);
+    clearTimers();
+
+    // -- bot-vs-bot turn integrity stays intact through a battle that ends in a fresh achievement --
+    await H.wipeSave();
+    const sv3 = H.save;
+    sv3.dragonKey = 'volt'; sv3.level = 3; sv3.exp = 0; sv3.stage = 4;
+    H.startBattle(4);
+    B = H.B;
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `achievement-earning battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    assert(sv3.achieved.firstWin === true, 'the bot-vs-bot win should also have earned firstWin');
     clearTimers();
   });
 
