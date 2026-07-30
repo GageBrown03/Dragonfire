@@ -811,7 +811,7 @@ not a spec.*
 
 ## Tier G — Meta & stakes (reasons to keep playing)
 
-- [ ] **Achievement / milestone track.** `save.record` already tracks wins, grades,
+- [x] **Achievement / milestone track.** `save.record` already tracks wins, grades,
   alpha kills, lifetime EXP/gold — enough raw material for a rewards layer without any new
   combat mechanics.
   - *Intent:* one-off bonus rewards (gold, a skill point) for feats that are already being
@@ -822,9 +822,54 @@ not a spec.*
     does the list live — a new Den panel, or folded into the existing record row?
   - *Extend:* `save.record`, `victory()`, the Den (`refreshDen`, a new panel alongside
     Skills/Stones), `save` (a new achieved-set field with a safe default).
+  - *Shipped:* a new `ACHIEVEMENTS` array (6 one-time milestones: first win, first alpha
+    felled, first S-grade hunt, 10 wins, stage 10 reached, 3 alphas felled), each derived
+    entirely from existing `save.record` fields — no new tracking needed, matching the
+    Weigh note that the raw material already exists. `checkAchievements()` is called once
+    from `victory()` right after the existing `persist()`, loops the list, and for any
+    milestone not yet in the new `save.achieved` map whose `check(save.record)` passes,
+    marks it earned and credits its `reward` (gold and/or a skill point) — one-time by
+    construction, since a marked id is skipped on every future call. Went with a dedicated
+    Den panel (`mAch`, `refreshAch`, a new "Achievements" button alongside Skills/Stones)
+    rather than folding the full list into the existing record row per the Weigh question,
+    but also added a compact "🏆 N/M" count into the existing `denRecord` row so the
+    at-a-glance option isn't lost either. Newly earned achievements are called out on the
+    victory modal itself (a new `#vAch` line under the hunt-grade line, e.g. "🏅
+    Achievement: First Blood (+100 Gold)") so the payout is visible the moment it's earned,
+    not just discoverable later in the Den. `save.achieved` gets a safe `{}` default in both
+    the initial `save` literal and `loadSave()`'s backfill, so old saves load fine. Guessed
+    the six milestones, their reward sizes (roughly scaled to `firstAlpha`'s existing
+    trophy-bonus precedent), and that "first S-grade hunt" was worth calling out over e.g.
+    "first crate broken" — a future run could add more milestones or vary reward sizes once
+    they're actually chased at higher stages. While verifying, hit and fixed the documented
+    RNG-stream-shift risk from earlier Tier E/F entries: the pre-existing alpha-boss test
+    unconditionally expects "exactly one bonus skill point" from a fresh save's first alpha
+    win, but a fresh save also earns the new `firstAlpha`/`threeAlphas` achievements (each
+    paying their own skill point) on that same win, so the assertion started failing —
+    fixed by pre-marking all achievements earned before that test's isolated alpha-bonus
+    check, which also stopped the test's early throw from silently truncating the shared
+    seeded `Math.random()` stream for every test after it (same class of stream-shift bug
+    the biome-weather and third-signature-tier features ran into, just triggered by a
+    thrown assertion this time instead of an extra random draw).
   - *Done when:* at least 3 achievements exist, are visible, and pay out exactly once each
     when earned, surviving save/load; harness asserts an achievement fires on the
-    triggering condition and does not re-fire on a second identical win.
+    triggering condition and does not re-fire on a second identical win. **Verified**:
+    harness test 27 checks at least 3 achievements exist and each carries a valid
+    id/name/check/reward; that a fresh save earns nothing; that crossing a single milestone
+    earns exactly that achievement once and credits its exact reward; that a repeat check
+    does not re-fire or re-pay it; that crossing multiple milestones in one check reports
+    all of them; that earned achievements survive save/load; that the Den's Achievements
+    panel renders a row per achievement with a correct "N/M earned" count; that a real
+    `victory()` call shows the newly earned achievement on the victory modal and that a
+    second, unrelated win does not re-announce it; and drives a full bot-vs-bot campaign
+    battle that ends in a fresh achievement to completion with strict turn alternation.
+    Also confirmed live in Playwright/Chromium: a seeded save with 3/6 achievements already
+    earned shows "🏆 3/6" in the Den's record row, and opening the new Achievements panel
+    lists all six with the earned three showing their icon and an "Earned" tag and the
+    other three greyed out with 🔒 (screenshot taken); driving a real `victory()` call
+    through the actual game (not a reimplementation) shows the victory modal reading
+    "🏅 Achievement: First Blood (+100 Gold) · ✨ Achievement: Flawless (+150 Gold)"
+    directly under the hunt-grade line (screenshot taken).
 
 - [ ] **Trial stages — modifier battles.** Side hunts (Tier D) proved the off-ladder-battle
   pattern; a trial is a side hunt with one active constraint for a bigger payout, testing
