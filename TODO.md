@@ -871,7 +871,7 @@ not a spec.*
     "🏅 Achievement: First Blood (+100 Gold) · ✨ Achievement: Flawless (+150 Gold)"
     directly under the hunt-grade line (screenshot taken).
 
-- [ ] **Trial stages — modifier battles.** Side hunts (Tier D) proved the off-ladder-battle
+- [x] **Trial stages — modifier battles.** Side hunts (Tier D) proved the off-ladder-battle
   pattern; a trial is a side hunt with one active constraint for a bigger payout, testing
   mastery instead of just re-grinding the same fight.
   - *Intent:* an optional, harder off-ladder fight (e.g. no healing allowed, doubled wind,
@@ -883,10 +883,48 @@ not a spec.*
   - *Extend:* `startSideHunt` (a sibling variant, matching how it was built as a sibling of
     `startBattle` rather than a parameterized branch), `B` flags, `victory()`'s reward
     branching.
+  - *Shipped:* a new `startTrial(modKey)` (a sibling of `startSideHunt`, same rationale that
+    kept side hunts out of `startBattle`) fights at the player's own stage/level, non-alpha,
+    exactly like a side hunt but tagged `B.trial={mod:modKey}` and paying `TRIAL_MULT` (0.85)
+    instead of `SIDE_HUNT_MULT` (0.5) — bigger than a side hunt per the Intent, still
+    off-ladder (`victory()`'s stage-advance/bestStage-bump branches now key off a shared
+    `offLadder=side||trial` so both off-ladder modes skip them the same way). Shipped both
+    constraints from the Weigh list rather than picking one, each a different mechanism as
+    the Weigh question suggested: **No Healing** (`noheal`) gates the Heal skill directly —
+    `castInstant` refuses the cast (a "Healing disabled!" float, no MP spent, turn not
+    ended) and `buildSkillbar` renders the Heal button locked (🔒/"OFF") so it's visibly
+    enforced before the player even tries; the AI's existing heal branch in `aiThink` gained
+    the same gate so it never attempts a doomed cast that would've stalled its turn (a real
+    risk called out explicitly — verified live, see below). **Windstorm** (`windx2`) is the
+    `B`-flag-on-an-existing-system option: `rollWind()` doubles `B.wind` after its normal
+    roll (composing with the existing wind-forecast and biome-gust logic already in that
+    function rather than a parallel path), and `forecastWindDisplay` got the same doubling so
+    Scope's exact-reveal amplifier still predicts correctly during a Windstorm trial. Entry
+    point is a new "Trial" button in the Den (`btnDenTrial`) opening a small `mTrial` modal
+    (`refreshTrial`) listing both modifiers with a "Fight" button each — picked a modal over
+    inline buttons since a player choosing between constraints benefits from reading the
+    description first, unlike the single-option Side Hunt button. `btnRetry` also checks
+    `B.trial` so retrying a lost trial relaunches the same modifier. Guessed the 0.85
+    multiplier (better than a side hunt, still worse than a full ladder win) and shipping
+    exactly two modifiers rather than one — a future run could add the halved-stamina idea
+    from the Intent or vary the payout once trials are actually played at higher stages.
   - *Done when:* the player can launch a trial, the constraint is visibly enforced in
     battle, and a win pays out more than an equivalent plain side hunt; harness asserts the
     constraint holds during a bot-vs-bot trial battle and that it still terminates with
-    strict alternation.
+    strict alternation. **Verified**: harness test 28 drives the real `btnDenTrial` → modal →
+    "Fight" click flow to launch a trial at the player's stage, confirms the Heal button
+    renders locked and a real `castInstant(p,'heal')` call fails without spending MP or
+    ending the turn during a No Healing trial, pins `Math.random()` to confirm `rollWind()`
+    exactly doubles the plain roll during a Windstorm trial, confirms a trial win pays more
+    gold than an equivalent side hunt while leaving `save.stage`/`bestStage` untouched, checks
+    `btnRetry` relaunches the same modifier after a loss, and drives a full bot-vs-bot No
+    Healing trial to completion with strict turn alternation (confirming the AI's heal-gate
+    fix prevents a stall). Also confirmed live in Playwright/Chromium: the Trial modal lists
+    both modifiers with descriptions (screenshot), a live No Healing battle shows the HUD tag
+    "TRIAL: NO HEALING · CINDER WASTES" with the Heal button greyed out and reading "OFF"
+    while every other skill stays usable (screenshot), and a live Windstorm battle shows
+    "WIND 18" on the pennant — roughly double the normal ~0–10 range — under the tag
+    "TRIAL: WINDSTORM · CINDER WASTES" (screenshot).
 
 ---
 

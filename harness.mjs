@@ -194,7 +194,7 @@ function loadGame() {
       B, get save(){ return save; },
       SKILLS, DRAGONS, GEAR,
       statsAt, expNeed, other,
-      startBattle, startDuel, startSideHunt, checkEnd, fire, aiSolve, Dragon,
+      startBattle, startDuel, startSideHunt, startTrial, TRIAL_MODS, TRIAL_MULT, refreshTrial, checkEnd, fire, aiSolve, Dragon,
       persist, loadSave, wipeSave, ladderWindow, refreshDen, BIOME_ORDER, BIOMES, blankRecord,
       get curBiomeKey(){ return curBiomeKey; }, get ground(){ return ground; }, FLOOR, SPAWN_P, SPAWN_E,
       castInstant, skillMult, refreshSkills, SKILL_KEYS, refreshShop,
@@ -2004,6 +2004,132 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
     assert(sv3.achieved.firstWin === true, 'the bot-vs-bot win should also have earned firstWin');
+    clearTimers();
+  });
+
+  // -- TEST 28: trial stages — modifier battles, one active constraint, bigger-than-side-hunt payout --
+  await test('trials: launchable from the Den with one active constraint, enforce it in battle, pay more than a side hunt, and the bot-vs-bot sim stays green', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+    // Pre-mark every achievement earned so checkAchievements() (called inside victory()) never
+    // pays a confounding bonus into the gold comparisons below — the same fix the alpha-boss
+    // and hunt-scoring tests needed once the achievement track landed.
+    for (const a of H.ACHIEVEMENTS) sv.achieved[a.id] = true;
+    const modKeys = Object.keys(H.TRIAL_MODS);
+    assert(modKeys.length >= 1, 'at least one trial modifier should exist');
+    assert(modKeys.includes('noheal') && modKeys.includes('windx2'), `expected the noheal/windx2 modifiers (got ${JSON.stringify(modKeys)})`);
+    assert(H.TRIAL_MULT > H.SIDE_HUNT_MULT, `a trial should pay a bigger reward multiplier than a side hunt (trial ${H.TRIAL_MULT}, side ${H.SIDE_HUNT_MULT})`);
+
+    // -- driving the real Den button + modal launches a trial at the player's own stage --
+    sv.dragonKey = 'ember'; sv.level = 3; sv.exp = 0; sv.gold = 100; sv.stage = 6;
+    H.refreshDen();
+    H.$('btnDenTrial').click();
+    assert(!H.$('mTrial').classList.contains('hidden'), 'the Trial button should open the trial-selection modal');
+    assert(H.$('trialRows').children.length === modKeys.length, 'the trial modal should list one row per modifier');
+    H.$('trialRows').children[0].children[0].click();
+    let B = H.B;
+    assert(B.mode === 'battle' && B.trial && B.trial.mod === modKeys[0], `clicking the first trial row should launch that modifier's trial (got ${JSON.stringify(B.trial)})`);
+    assert(B.stage === 6, `a trial should fight at the player's current stage (expected 6, got ${B.stage})`);
+    assert(!B.e.alpha, 'a trial should never spawn an alpha boss');
+    clearTimers();
+
+    // -- No Healing: the Heal skill is visibly locked and cannot be cast, but the AI never stalls on it --
+    sv.dragonKey = 'ember'; sv.level = 3; sv.exp = 0; sv.gold = 100; sv.stage = 6;
+    H.startTrial('noheal');
+    B = H.B;
+    B.p.mp = B.p.maxmp;
+    H.buildSkillbar(B.p);
+    const healBtn = H.$('skills').children.find(c => c.dataset.key === 'heal');
+    assert(healBtn && healBtn.dataset.lock === '1', 'the Heal button should render locked during a No Healing trial');
+    const hpBefore = B.p.hp; B.p.hp = Math.round(B.p.maxhp * 0.5);
+    const castOk = H.castInstant(B.p, 'heal');
+    assert(castOk === false, 'casting Heal during a No Healing trial should fail');
+    assert(B.p.hp === Math.round(B.p.maxhp * 0.5), 'a blocked heal must not restore any HP');
+    assert(B.state !== 'anim' || B.active === B.p, 'a blocked heal must not hand the turn to the enemy');
+    B.p.hp = hpBefore;
+    clearTimers();
+
+    // -- Windstorm: wind is doubled every turn relative to the un-doubled roll --
+    sv.dragonKey = 'ember'; sv.level = 3; sv.exp = 0; sv.gold = 100; sv.stage = 6;
+    H.startTrial('windx2');
+    B = H.B;
+    {
+      const realRandom = H.Math.random;
+      H.Math.random = () => 0.75; // pin so both rolls use the identical underlying draw
+      const savedTrial = B.trial; B.trial = null;
+      H.rollWind(); const plain = B.wind;
+      B.trial = savedTrial;
+      H.rollWind(); const doubled = B.wind;
+      H.Math.random = realRandom;
+      assert(Math.abs(plain) > 1e-9, 'the pinned wind roll must be nonzero for a meaningful doubling check');
+      assert(Math.abs(doubled - plain * 2) < 1e-9, `a Windstorm trial should exactly double the plain wind roll (plain ${plain}, trial ${doubled})`);
+    }
+    clearTimers();
+
+    // -- a trial win pays more than a plain side hunt at the same stage, and never advances the ladder --
+    sv.dragonKey = 'ember'; sv.level = 3; sv.exp = 0; sv.gold = 100; sv.stage = 6;
+    H.startSideHunt();
+    B = H.B;
+    B.turnNo = 10; B.p.hp = B.p.maxhp; B.e.hp = 0;
+    const sideGold0 = sv.gold;
+    H.checkEnd();
+    const sideHuntGold = sv.gold - sideGold0;
+    clearTimers();
+
+    sv.dragonKey = 'ember'; sv.level = 3; sv.exp = 0; sv.gold = 100; sv.stage = 6;
+    H.startTrial('noheal');
+    B = H.B;
+    B.turnNo = 10; B.p.hp = B.p.maxhp; B.e.hp = 0;
+    const stage0 = sv.stage, gold0 = sv.gold, best0 = sv.record.bestStage, wins0 = sv.record.wins;
+    H.checkEnd();
+    assert(B.state === 'over', 'the trial battle ended when the enemy fell');
+    assert(sv.stage === stage0, `a trial win must not advance the stage (was ${stage0}, now ${sv.stage})`);
+    assert(sv.record.bestStage === best0, 'a trial win must not bump the ladder best-stage record');
+    assert(sv.record.wins === wins0 + 1, 'a trial win should still count toward the overall win record');
+    const trialGold = sv.gold - gold0;
+    assert(trialGold > sideHuntGold, `a trial should pay more gold than an equivalent plain side hunt (side hunt ${sideHuntGold}, trial ${trialGold})`);
+    assert(H.$('vSub').textContent.toLowerCase().includes('trial'), 'the victory modal should read as a trial');
+    clearTimers();
+
+    // -- a losing trial (Retry) restarts the same trial, still without touching stage --
+    sv.dragonKey = 'ember'; sv.level = 3; sv.exp = 0; sv.gold = 100; sv.stage = 6;
+    H.startTrial('windx2');
+    B = H.B;
+    B.p.hp = 0;
+    H.checkEnd();
+    tick(1100);
+    assert(!H.$('mDefeat').classList.contains('hidden'), 'defeat modal should show after a trial loss');
+    H.$('btnRetry').click();
+    assert(H.B.trial && H.B.trial.mod === 'windx2', 'retrying after a trial defeat should relaunch the same trial, not a ladder battle');
+    assert(sv.stage === 6, 'a trial defeat + retry must never touch save.stage');
+    clearTimers();
+
+    // -- bot-vs-bot turn integrity holds through a full No Healing trial (the AI never stalls trying to heal) --
+    sv.dragonKey = 'volt'; sv.level = 4; sv.exp = 0; sv.stage = 7;
+    H.startTrial('noheal');
+    B = H.B;
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 16000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `No Healing trial battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    assert(sv.stage === 7, 'a full bot-vs-bot trial must still leave save.stage untouched');
     clearTimers();
   });
 
