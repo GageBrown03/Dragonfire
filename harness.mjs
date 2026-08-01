@@ -1315,7 +1315,7 @@ const flush = () => new Promise((r) => setImmediate(r));
   });
 
   // -- TEST 20: boss-only signature hazards, keyed off the enrage trigger
-  await test('boss-only signature hazards: Cindermaw scorches the ground and Glacierfang raises an ice wall on enrage, and the bot-vs-bot sim stays green', async () => {
+  await test('boss-only signature hazards: Cindermaw scorches the ground, Glacierfang raises an ice wall, and Quakehide cracks the ground underfoot on enrage, and the bot-vs-bot sim stays green', async () => {
     clearTimers();
     await H.wipeSave();
     const sv = H.save;
@@ -1326,6 +1326,7 @@ const flush = () => new Promise((r) => setImmediate(r));
     for (const key of hazardKeys) assert(H.ALPHA_TITLES[key], `BOSS_HAZARDS key "${key}" should be a real alpha title`);
     assert(H.BOSS_HAZARDS.ember, 'expected Cindermaw (ember) to carry a signature hazard');
     assert(H.BOSS_HAZARDS.frost, 'expected Glacierfang (frost) to carry a signature hazard');
+    assert(H.BOSS_HAZARDS.terra, 'expected Quakehide (terra) to carry a signature hazard');
 
     // real terrain so ground-raising is meaningful, and B.zones/B.modeType set up like a live battle
     sv.dragonKey = 'terra'; sv.level = 3; sv.stage = 2; sv.exp = 0;
@@ -1352,6 +1353,17 @@ const flush = () => new Promise((r) => setImmediate(r));
     const groundAfter = H.ground[Math.round(mx)];
     assert(groundAfter < groundBefore, `an ice wall should raise the terrain ahead of Glacierfang (before ${groundBefore}, after ${groundAfter})`);
 
+    // -- Quakehide: enraging cracks the ground open directly under the foe's footing --
+    // triggerBossHazard reads other(boss) off the live B.p/B.e globals; B.p is still the
+    // real 'terra' player dragon from startBattle(2) above, and a freshly-built boss object
+    // is never === B.p, so other(quakeBoss) resolves to the real foe without any rewiring.
+    const foeX = Math.round(B.p.x);
+    const groundBeforeQuake = H.ground[foeX];
+    const quakeBoss = new H.Dragon('terra', 5, true, 900, true);
+    H.triggerBossHazard(quakeBoss);
+    const groundAfterQuake = H.ground[foeX];
+    assert(groundAfterQuake > groundBeforeQuake, `a quake should carve the ground deeper under the foe's footing (before ${groundBeforeQuake}, after ${groundAfterQuake})`);
+
     // -- a boss with no mapped hazard (e.g. Stormcrown) enrages without pushing a zone or touching terrain --
     B.zones = [];
     const voltBoss = new H.Dragon('volt', 5, true, 900, true);
@@ -1370,6 +1382,10 @@ const flush = () => new Promise((r) => setImmediate(r));
     H.dealDamage(attacker, wiredBoss, 70, 1, 'shot');  // sized to cross the threshold under any rand()/crit draw
     assert(wiredBoss.enraged === true, 'the hit should have crossed the enrage threshold');
     assert(B.zones.length === 1, 'a real enrage event on Cindermaw should fire its hazard through dealDamage, not just via a direct call');
+    // (Quakehide's own wire-through-dealDamage is exercised live in the bot-vs-bot pass below
+    // rather than with a second isolated dealDamage() call here — an extra call here would
+    // consume two more draws off the shared seeded Math.random() stream and shift every
+    // later test's RNG-dependent outcomes, the exact risk earlier features already hit.)
 
     // -- bot-vs-bot turn integrity stays intact with a live hazard triggered --
     clearTimers();
@@ -1400,6 +1416,39 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
     assert(hazardFired, 'the scorched-ground hazard should have actually fired during the live bot-vs-bot fight');
+    clearTimers();
+
+    // -- bot-vs-bot turn integrity stays intact with Quakehide's crater/fall-damage hazard --
+    // this is the riskiest of the three (it drops a dragon's footing out from under them mid-
+    // battle, which relies on the existing air/land physics and waitSettle's airborne wait),
+    // so it gets its own dedicated live pass rather than piggybacking on the ember run above.
+    clearTimers();
+    sv.dragonKey = 'ember'; sv.level = 4; sv.stage = 5; sv.exp = 0;
+    H.startBattle(5);
+    assert(B.e.alpha, 'stage 5 should be an alpha battle');
+    B.e = new H.Dragon('terra', B.e.level, true, H.SPAWN_E, true); // force Quakehide so its hazard is exercised live
+    let lastTurnQ = 0, prevSideQ = null, turnsSeenQ = 0, quakeEnraged = false;
+    const problemsQ = [];
+    const BUDGET_Q = 8000;
+    for (let i = 0; i < BUDGET_Q && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.e.enraged) quakeEnraged = true; // triggerBossHazard fires synchronously right after this flips true
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurnQ) {
+        if (B.turnNo - lastTurnQ > 1) problemsQ.push(`turn number jumped by ${B.turnNo - lastTurnQ} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSideQ !== null && side === prevSideQ) problemsQ.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSideQ = side; lastTurnQ = B.turnNo; turnsSeenQ++;
+      }
+    }
+    assert(B.state === 'over', `Quakehide battle did not finish within ${BUDGET_Q} frames (stuck in state "${B.state}")`);
+    assert(turnsSeenQ >= 4, `expected several turns, only saw ${turnsSeenQ}`);
+    assert(problemsQ.length === 0, problemsQ.join('; '));
+    assert(quakeEnraged, 'Quakehide should have enraged (and fired its crater hazard) during the live bot-vs-bot fight');
     clearTimers();
   });
 

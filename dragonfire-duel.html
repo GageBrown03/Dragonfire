@@ -1607,7 +1607,8 @@ function dealDamage(att,tgt,base,falloff,skillKey){
 // number. Only a couple of the six ALPHA_TITLES have one so far; the rest just enrage.
 const BOSS_HAZARDS={
   ember:{label:'scorch',   col:'#ff8a3d', col2:'#ffd23f'},
-  frost:{label:'ice wall', col:'#bdefff', col2:'#e8fbff'}
+  frost:{label:'ice wall', col:'#bdefff', col2:'#e8fbff'},
+  terra:{label:'quake',    col:'#caa27a', col2:'#8a6a45'}
 };
 function triggerBossHazard(boss){
   const hz=BOSS_HAZARDS[boss.key]; if(!hz)return;
@@ -1623,6 +1624,13 @@ function triggerBossHazard(boss){
     announce(boss.name+' freezes the ground into a wall of ice!');
     burst(mx,groundAt(mx)-20,[hz.col,hz.col2,'#ffffff'],22,3.4,{up:1.8,size:5});
     sfx.freeze();
+  }else if(boss.key==='terra'){
+    const foe=other(boss), fx=foe.x, fy=groundAt(fx);
+    crater(fx,fy,130);
+    floatTxt(fx,fy-130,'The ground gives way!',hz.col);
+    announce(boss.name+' quakes open a crater underfoot!');
+    burst(fx,fy-20,[hz.col,hz.col2,'#ffffff'],22,3.4,{up:1.8,size:5});
+    cam.shake=Math.min(16,cam.shake+7);
   }
 }
 
