@@ -926,6 +926,87 @@ not a spec.*
     "WIND 18" on the pennant — roughly double the normal ~0–10 range — under the tag
     "TRIAL: WINDSTORM · CINDER WASTES" (screenshot).
 
+## Tier H — Second wave of polish (queue ran dry again)
+
+*Added 2026-08-01 — Tiers A–G are all shipped and the queue ran dry a second time. Same
+rules as always: read CLAUDE.md, topmost unchecked, one per run, treat every item as a
+direction not a spec. This wave leans on notes-for-a-future-run left by earlier items
+rather than inventing new systems from scratch.*
+
+- [x] **Boss-only hazards, round two.** Only Cindermaw (ember) and Glacierfang (frost) got
+  a signature hazard when the archetype shipped; the item's own note flagged the other four
+  (Stormcrown, Quakehide, Nightgorge, Plaguewing) as future work with the shape already
+  sketched out.
+  - *Intent:* one more alpha whose name predicts a specific thing that happens to the arena
+    on enrage, same as the first two.
+  - *Weigh:* pick whichever remaining boss has the lowest-risk mechanic given what already
+    exists — Quakehide's "fresh crater underfoot" reuses `crater()` exactly like a normal
+    projectile impact and the existing fall-damage-on-landing rule the chasm biome already
+    exercises, with zero new `Math.random()` calls (the documented RNG-stream-shift risk
+    from several earlier Tier E/F/G items). Stormcrown's bolt-to-a-second-point is more
+    tempting narratively but means pushing into `B.queue` from inside `dealDamage`
+    mid-explode, which risks the exact "second state machine" CLAUDE.md warns against —
+    leave it for a run with more room to verify the queue interaction carefully.
+  - *Extend:* `BOSS_HAZARDS`, `triggerBossHazard`, `crater`, the existing fall-damage rule
+    in `Dragon.land`/`update`.
+  - *Shipped:* a third mapped hazard, `BOSS_HAZARDS.terra` (Quakehide), added to the same
+    `triggerBossHazard` function the first two use, fired from the identical enrage branch
+    in `dealDamage` — no new trigger point, no second state machine. On enrage it calls the
+    existing `crater()` (the same function every ordinary splash impact already uses)
+    centered directly under `other(boss)`'s current footing, radius 130, which measurably
+    drops the ground there; nothing new was needed to make that dangerous — `Dragon.update`'s
+    existing gravity check and `Dragon.land`'s existing fall-damage rule (the same ones the
+    chasm biome already exercises) pick it up automatically once the ground drops out from
+    under whoever's standing there. Telegraphed the same three ways as Cindermaw/Glacierfang:
+    an `announce()` toast ("Quakehide quakes open a crater underfoot!"), a `floatTxt` ("The
+    ground gives way!"), and a matching `burst()`. Deliberately skipped Stormcrown's
+    bolt-to-a-second-point idea from the original Weigh list — it would need pushing into
+    `B.queue` from inside `dealDamage` mid-explode, a real risk to the turn loop that
+    deserves its own dedicated run rather than a second addition bundled into this one.
+  - *Done when:* a third alpha's hazard is visible and distinct on enrage, telegraphed the
+    same way the first two are, and doesn't destabilize the turn loop; harness extends the
+    existing boss-hazard test with the new boss and keeps the bot-vs-bot sim green.
+    **Verified**: harness test 20 (extended) confirms `BOSS_HAZARDS.terra` exists, that a
+    direct `triggerBossHazard` call on a fresh Quakehide carves the ground deeper at the real
+    foe's exact standing column (leaving Stormcrown, still unmapped, provably untouched), and
+    drives a dedicated full bot-vs-bot campaign battle forcing a Quakehide alpha to completion
+    with strict turn alternation while asserting it actually enraged (and therefore fired its
+    hazard) live — kept as its own separate live pass rather than reusing the ember run above
+    since crater/fall-damage physics is the riskiest of the three hazards to the turn loop.
+    Deliberately did *not* add a second isolated `dealDamage()` call to prove the "wired
+    through a real hit" path in isolation (unlike Cindermaw's test) — that would consume two
+    more draws off the shared seeded `Math.random()` stream mid-test and shift every later
+    test's RNG-dependent outcome, the exact documented risk earlier Tier E/F/G features hit;
+    the dedicated live bot-vs-bot pass already exercises the real `dealDamage` wiring end to
+    end. Also confirmed live in Playwright/Chromium: a stage-5 battle forced against Quakehide
+    shows the toast "Quakehide quakes open a crater underfoot!", the float "The ground gives
+    way!", and — comparing before/after screenshots — a new, visibly deeper pit carved into
+    the terrain directly under the player dragon's feet the instant Quakehide enrages.
+
+- [ ] **A second Scope forecast slot.** Scope currently reveals exactly one turn of wind
+  ahead; its own note flagged stacking a second forecast slot as the natural next step if
+  one turn of lookahead proves too weak in practice.
+  - *Intent:* let a player who leans on Scope see two turns of wind ahead instead of one,
+    making the amplifier a stronger information tool without changing its cost/cap.
+  - *Weigh:* a queue of two forecasts vs a single deeper one; does using Scope twice in two
+    turns stack cleanly with `rollWind`'s existing single-slot check?
+  - *Extend:* `B.windForecast`, `rollWind`, `forecastWindDisplay`, `useAmp`.
+  - *Done when:* using Scope shows (and correctly predicts) wind two turns out, not just
+    one; harness extends the existing Scope test to check the second slot resolves exactly.
+
+- [ ] **Halved-stamina trial modifier.** Trials shipped with two modifiers (No Healing,
+  Windstorm); the item's own note flagged the third Intent idea — halved max stamina — as
+  left for a future run.
+  - *Intent:* a third trial constraint that changes the *movement* half of a turn instead of
+    healing or aim, rounding out the modifier set.
+  - *Weigh:* simplest enforcement point — scale `Dragon.stamina`/max at battle start for the
+    trial's dragon(s), matching how `windx2` scales `B.wind` in `rollWind` rather than
+    touching `tryMove` directly.
+  - *Extend:* `TRIAL_MODS`, `startTrial`, the Den's Trial modal, `Dragon` stamina fields.
+  - *Done when:* the constraint is visibly enforced (a shorter movement range in battle) and
+    a win still pays the trial rate; harness asserts stamina is halved during the trial and
+    the bot-vs-bot sim stays green.
+
 ---
 
 *Standing concern, not a task:* difficulty / EXP / gold curve tuning is evaluated
