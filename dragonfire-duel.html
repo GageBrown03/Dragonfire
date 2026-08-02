@@ -257,7 +257,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
           <button class="itemBtn clicky" id="btnItemMp" title="MP potion">🔮<span class="cnt" id="cntMp">0</span></button>
           <button class="itemBtn clicky" id="btnItemCalm" title="Calm Wind — zeroes wind this turn">🍃<span class="cnt" id="cntCalm">0</span></button>
           <button class="itemBtn clicky" id="btnItemSurge" title="Overcharge — next shot deals +30% damage">💥<span class="cnt" id="cntSurge">0</span></button>
-          <button class="itemBtn clicky" id="btnItemScope" title="Scope — reveals the exact wind for the opponent's next turn">🔭<span class="cnt" id="cntScope">0</span></button>
+          <button class="itemBtn clicky" id="btnItemScope" title="Scope — reveals the exact wind for the next two turns">🔭<span class="cnt" id="cntScope">0</span></button>
         </div>
         <div id="moveCtl">
           <button id="btnLeft" class="clicky">◀</button><button id="btnRight" class="clicky">▶</button>
@@ -1254,11 +1254,12 @@ class Proj{
    ===================================================================== */
 const B={mode:'title',modeType:'campaign',state:'idle',stage:1,side:false,trial:null,p:null,e:null,active:null,wind:0,
   aim:{ang:45,pow:0,charging:false,skill:'shot'},
-  queue:[],projs:[],zones:[],usedItem:{hp:false,mp:false,calm:false,surge:false,scope:false},ampSurge:false,aiPlan:null,turnNo:0,hinted:false,duelKeys:null,windForecast:null};
+  queue:[],projs:[],zones:[],usedItem:{hp:false,mp:false,calm:false,surge:false,scope:false},ampSurge:false,aiPlan:null,turnNo:0,hinted:false,duelKeys:null,windForecast:[]};
 const other=d=>d===B.p?B.e:B.p;
 
 function rollWind(){
-  if(B.windForecast&&B.windForecast.turn===B.turnNo){ B.wind=B.windForecast.base; B.windForecast=null; }
+  const idx=B.windForecast.findIndex(f=>f.turn===B.turnNo);
+  if(idx>=0){ B.wind=B.windForecast[idx].base; B.windForecast.splice(idx,1); }
   else B.wind=rand(-WIND_MAX,WIND_MAX);
   if(B.trial&&B.trial.mod==='windx2')B.wind=clamp(B.wind*2,-WIND_MAX*2.4,WIND_MAX*2.4);
 }
@@ -1278,7 +1279,7 @@ function setupField(biomeKey,stage){
   makeObstacles(nObs,curBiome.obst,stage);
   makeCrates(stage);
   initAmbient(curBiome.amb);
-  B.queue=[]; B.projs=[]; B.zones=[]; B.aiPlan=null; B.turnNo=0; B.windForecast=null;
+  B.queue=[]; B.projs=[]; B.zones=[]; B.aiPlan=null; B.turnNo=0; B.windForecast=[];
   parts.length=0; floats.length=0;
 }
 function enterBattleUI(tagText){
@@ -2018,8 +2019,12 @@ function useAmp(kind){
   }else if(kind==='surge'){
     B.ampSurge=true; floatTxt(B.p.x,B.p.y-84,'Overcharged!','#ffd23f'); sfx.crit();
   }else{
-    const turn=B.turnNo+1, base=rand(-WIND_MAX,WIND_MAX);
-    B.windForecast={turn,base};
+    // Two turns of lookahead from one use: draw both bases in turn order so the
+    // forecast for turn+1 always consumes the earlier rand() call than turn+2.
+    B.windForecast=[
+      {turn:B.turnNo+1,base:rand(-WIND_MAX,WIND_MAX)},
+      {turn:B.turnNo+2,base:rand(-WIND_MAX,WIND_MAX)},
+    ];
     floatTxt(B.p.x,B.p.y-84,'Scoped!','#bfe9ff'); sfx.whirl();
   }
   save.amps[kind]--; B.usedItem[kind]=true; persist();
@@ -2582,8 +2587,11 @@ function syncHUD(){
   windEl.textContent=(B.weatherActive?'⚠ ':'')+'WIND '+windTxt(B.wind);
   windEl.classList.toggle('weatherActive',!!B.weatherActive);
   const fc=$('windForecast');
-  if(B.windForecast){
-    fc.textContent='Next: '+windTxt(forecastWindDisplay(B.windForecast.base,B.windForecast.turn));
+  if(B.windForecast.length){
+    fc.textContent=B.windForecast.map(f=>{
+      const off=f.turn-B.turnNo;
+      return (off===1?'Next':'+'+off)+': '+windTxt(forecastWindDisplay(f.base,f.turn));
+    }).join(' · ');
     fc.classList.remove('hidden');
   }else fc.classList.add('hidden');
   const cloth=$('flagCloth');
