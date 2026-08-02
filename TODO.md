@@ -983,7 +983,7 @@ rather than inventing new systems from scratch.*
     way!", and — comparing before/after screenshots — a new, visibly deeper pit carved into
     the terrain directly under the player dragon's feet the instant Quakehide enrages.
 
-- [ ] **A second Scope forecast slot.** Scope currently reveals exactly one turn of wind
+- [x] **A second Scope forecast slot.** Scope currently reveals exactly one turn of wind
   ahead; its own note flagged stacking a second forecast slot as the natural next step if
   one turn of lookahead proves too weak in practice.
   - *Intent:* let a player who leans on Scope see two turns of wind ahead instead of one,
@@ -991,8 +991,38 @@ rather than inventing new systems from scratch.*
   - *Weigh:* a queue of two forecasts vs a single deeper one; does using Scope twice in two
     turns stack cleanly with `rollWind`'s existing single-slot check?
   - *Extend:* `B.windForecast`, `rollWind`, `forecastWindDisplay`, `useAmp`.
+  - *Shipped:* went with the queue-of-two option from the Weigh list rather than a single
+    deeper slot — `B.windForecast` changed from a single `{turn,base}`/`null` value to an
+    array of up to two `{turn,base}` entries. One Scope use now arms *both* `B.turnNo+1`
+    and `B.turnNo+2` at once (two `rand()` calls in turn order, so the near slot always
+    consumes the earlier draw), rather than requiring two separate uses across two turns —
+    simpler for the cost/cap to reason about, and it matches the Intent's "one use, two
+    turns of lookahead" framing more directly than a stacking-across-turns design would
+    have. `rollWind()` now searches the array by `turn` for a match at the current
+    `B.turnNo`, applies and splices out only that entry, leaving any other armed slot
+    intact — so the far slot survives the near slot resolving. The `#windForecast` HUD
+    pennant renders every armed entry, each labeled by its offset from the current turn
+    ("Next: …" for +1, "+2: …" for +2), joined with " · ", reusing the existing
+    `forecastWindDisplay`/`windTxt` formatting unchanged (that helper already took a
+    `(base,turn)` pair per-entry, so no signature change was needed there — it composes
+    with the Frozen Reach's gust cadence exactly as before, per-slot). A second Scope use
+    while a forecast is still armed fully replaces the array (same overwrite behavior the
+    single-slot version had), rather than trying to merge/extend the existing queue —
+    simplest option, and avoids ambiguity about what "using it again" should mean.
   - *Done when:* using Scope shows (and correctly predicts) wind two turns out, not just
     one; harness extends the existing Scope test to check the second slot resolves exactly.
+    **Verified**: harness test 26 (extended) checks a single Scope use arms both slots at
+    exactly `turnNo+1`/`turnNo+2` with bases in range, that a same-turn reuse is still
+    blocked and leaves both slots untouched, that resolving the first slot via a real
+    `rollWind()` call reproduces its base exactly and leaves the second slot armed, that
+    resolving the second slot similarly reproduces its base exactly and empties the array,
+    that a stale non-matching turn number still doesn't consume an armed forecast, and
+    drives a full bot-vs-bot campaign battle with Scope stocked but unused to completion
+    with strict turn alternation. Also confirmed live in Playwright/Chromium: buying Scope
+    and using it in a real campaign battle showed `#windForecast` grow to two entries
+    ("Next: 10 ← · +2: 0"), the turn stayed on the player's aim state throughout, and the
+    charge/used-this-turn bookkeeping matched the harness assertions — no overflow or
+    cutoff at 1280px width and no console errors.
 
 - [ ] **Halved-stamina trial modifier.** Trials shipped with two modifiers (No Healing,
   Windstorm); the item's own note flagged the third Intent idea — halved max stamina — as

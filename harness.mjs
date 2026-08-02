@@ -1863,8 +1863,8 @@ const flush = () => new Promise((r) => setImmediate(r));
     clearTimers();
   });
 
-  // -- TEST 26: a third battle amplifier, Scope ---------------------------------
-  await test('a third battle amplifier (Scope): buyable and capped, reveals the exact next-turn wind without ending the turn, and the bot-vs-bot sim stays green', async () => {
+  // -- TEST 26: a third battle amplifier, Scope (now two turns of lookahead) ----
+  await test('a third battle amplifier (Scope): buyable and capped, reveals the exact wind for the next two turns without ending the turn, and the bot-vs-bot sim stays green', async () => {
     clearTimers();
     await H.wipeSave();
     const sv = H.save;
@@ -1895,31 +1895,41 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(B.state === 'aim' && B.active === B.p, 'the player should be aiming at the top of their turn');
     assert(H.curBiomeKey === 'tundra', `expected stage 3 to land on the Frozen Reach (got ${H.curBiomeKey})`);
 
-    assert(B.windForecast === null, 'no forecast should be armed before Scope is used');
+    assert(Array.isArray(B.windForecast) && B.windForecast.length === 0, 'no forecast should be armed before Scope is used');
     const btnScope = document.getElementById('btnItemScope');
+    const turnAtUse = B.turnNo;
     btnScope.click();
     assert(B.state === 'aim' && B.active === B.p, 'using Scope must not end the turn');
     assert(sv.amps.scope === 1, `using Scope should consume one charge (got ${sv.amps.scope})`);
     assert(B.usedItem.scope === true, 'Scope should be marked used for this turn');
-    assert(B.windForecast && B.windForecast.turn === B.turnNo + 1, `Scope should arm a forecast for the very next turn (got ${JSON.stringify(B.windForecast)}, current turn ${B.turnNo})`);
-    assert(Math.abs(B.windForecast.base) <= H.WIND_MAX, 'the forecasted base wind should be within the normal wind range');
-    const forecast = B.windForecast;
+    assert(B.windForecast.length === 2, `Scope should arm two forecast slots (got ${JSON.stringify(B.windForecast)})`);
+    const [slot1, slot2] = B.windForecast;
+    assert(slot1.turn === turnAtUse + 1, `the first slot should forecast the very next turn (got ${JSON.stringify(slot1)}, current turn ${turnAtUse})`);
+    assert(slot2.turn === turnAtUse + 2, `the second slot should forecast two turns out (got ${JSON.stringify(slot2)}, current turn ${turnAtUse})`);
+    assert(Math.abs(slot1.base) <= H.WIND_MAX && Math.abs(slot2.base) <= H.WIND_MAX, 'both forecasted bases should be within the normal wind range');
 
     // -- a second use on the same turn is blocked even with a charge left --
     btnScope.click();
-    assert(sv.amps.scope === 1 && B.windForecast === forecast, 'a second Scope use on the same turn should be blocked');
+    assert(sv.amps.scope === 1 && B.windForecast[0] === slot1 && B.windForecast[1] === slot2, 'a second Scope use on the same turn should be blocked');
 
-    // -- the forecast is exact: rolling wind for the forecasted turn reproduces it verbatim --
-    B.turnNo = forecast.turn;
+    // -- the first slot is exact: rolling wind for that forecasted turn reproduces it verbatim,
+    //    and leaves the second slot armed and untouched --
+    B.turnNo = slot1.turn;
     H.rollWind();
-    assert(B.wind === forecast.base, `rolling wind on the forecasted turn should reproduce the locked value exactly (expected ${forecast.base}, got ${B.wind})`);
-    assert(B.windForecast === null, 'the forecast should be consumed once its turn arrives');
+    assert(B.wind === slot1.base, `rolling wind on the first forecasted turn should reproduce the locked value exactly (expected ${slot1.base}, got ${B.wind})`);
+    assert(B.windForecast.length === 1 && B.windForecast[0] === slot2, 'consuming the first slot should leave the second slot armed');
 
-    // -- a stale (non-matching) turn number does not consume the forecast --
-    B.windForecast = { turn: 999, base: 0.01 };
+    // -- the second slot resolves exactly too, two turns out from the original use --
+    B.turnNo = slot2.turn;
+    H.rollWind();
+    assert(B.wind === slot2.base, `rolling wind on the second forecasted turn should reproduce the locked value exactly (expected ${slot2.base}, got ${B.wind})`);
+    assert(B.windForecast.length === 0, 'the second slot should be consumed once its turn arrives');
+
+    // -- a stale (non-matching) turn number does not consume an armed forecast --
+    B.windForecast = [{ turn: 999, base: 0.01 }];
     B.turnNo = 5;
     H.rollWind();
-    assert(B.windForecast !== null, 'a forecast for a turn that has not arrived yet should not be consumed');
+    assert(B.windForecast.length === 1, 'a forecast for a turn that has not arrived yet should not be consumed');
 
     // -- forecastWindDisplay predicts the Frozen Reach's deterministic gust on the forecasted turn --
     const gustTurn = 8;   // a multiple of BIOME_WEATHER.tundra.every
