@@ -1018,10 +1018,11 @@ rather than inventing new systems from scratch.*
     resolving the second slot similarly reproduces its base exactly and empties the array,
     that a stale non-matching turn number still doesn't consume an armed forecast, and
     drives a full bot-vs-bot campaign battle with Scope stocked but unused to completion
-    with strict turn alternation. Live Playwright/Chromium confirmation of the two-line
-    `#windForecast` pennant was kicked off alongside this change; if it turns up a display
-    bug (e.g. text overflow from the longer two-entry string) a follow-up commit fixes it
-    before merge — the harness coverage above stands on its own regardless.
+    with strict turn alternation. Also confirmed live in Playwright/Chromium: buying Scope
+    and using it in a real campaign battle showed `#windForecast` grow to two entries
+    ("Next: 10 ← · +2: 0"), the turn stayed on the player's aim state throughout, and the
+    charge/used-this-turn bookkeeping matched the harness assertions — no overflow or
+    cutoff at 1280px width and no console errors.
 
 - [ ] **Halved-stamina trial modifier.** Trials shipped with two modifiers (No Healing,
   Windstorm); the item's own note flagged the third Intent idea — halved max stamina — as
