@@ -194,7 +194,7 @@ function loadGame() {
       B, get save(){ return save; },
       SKILLS, DRAGONS, GEAR,
       statsAt, expNeed, other,
-      startBattle, startDuel, startSideHunt, startTrial, TRIAL_MODS, TRIAL_MULT, refreshTrial, checkEnd, fire, aiSolve, Dragon,
+      startBattle, startDuel, startSideHunt, startTrial, TRIAL_MODS, TRIAL_MULT, refreshTrial, checkEnd, fire, aiSolve, Dragon, startTurn,
       persist, loadSave, wipeSave, ladderWindow, refreshDen, BIOME_ORDER, BIOMES, blankRecord,
       get curBiomeKey(){ return curBiomeKey; }, get ground(){ return ground; }, FLOOR, SPAWN_P, SPAWN_E,
       castInstant, skillMult, refreshSkills, SKILL_KEYS, refreshShop,
@@ -2077,7 +2077,7 @@ const flush = () => new Promise((r) => setImmediate(r));
     for (const a of H.ACHIEVEMENTS) sv.achieved[a.id] = true;
     const modKeys = Object.keys(H.TRIAL_MODS);
     assert(modKeys.length >= 1, 'at least one trial modifier should exist');
-    assert(modKeys.includes('noheal') && modKeys.includes('windx2'), `expected the noheal/windx2 modifiers (got ${JSON.stringify(modKeys)})`);
+    assert(modKeys.includes('noheal') && modKeys.includes('windx2') && modKeys.includes('halfstam'), `expected the noheal/windx2/halfstam modifiers (got ${JSON.stringify(modKeys)})`);
     assert(H.TRIAL_MULT > H.SIDE_HUNT_MULT, `a trial should pay a bigger reward multiplier than a side hunt (trial ${H.TRIAL_MULT}, side ${H.SIDE_HUNT_MULT})`);
 
     // -- driving the real Den button + modal launches a trial at the player's own stage --
@@ -2124,6 +2124,24 @@ const flush = () => new Promise((r) => setImmediate(r));
       assert(Math.abs(plain) > 1e-9, 'the pinned wind roll must be nonzero for a meaningful doubling check');
       assert(Math.abs(doubled - plain * 2) < 1e-9, `a Windstorm trial should exactly double the plain wind roll (plain ${plain}, trial ${doubled})`);
     }
+    clearTimers();
+
+    // -- Halved Stamina: both dragons' maxstam/stamina are halved from the un-modified 90+agi formula
+    // (agi already includes the player's own gear, per the Dragon constructor) at battle start, and the
+    // halved max persists as the refill target on every subsequent turn, same as a normal battle. Compare
+    // against each dragon's own agi rather than a separately-launched baseline battle: a second launch
+    // would draw a different random enemy dragon (and thus a different agi) off the shared RNG stream,
+    // the same documented risk earlier trial/biome/skill-tier features hit. --
+    sv.dragonKey = 'ember'; sv.level = 3; sv.exp = 0; sv.gold = 100; sv.stage = 6;
+    H.startTrial('halfstam');
+    B = H.B;
+    const expectedPlayerMaxStam = 90 + B.p.agi, expectedEnemyMaxStam = 90 + B.e.agi;
+    assert(B.p.maxstam === Math.round(expectedPlayerMaxStam / 2), `Halved Stamina should halve the player's maxstam (expected ${Math.round(expectedPlayerMaxStam / 2)}, got ${B.p.maxstam})`);
+    assert(B.e.maxstam === Math.round(expectedEnemyMaxStam / 2), `Halved Stamina should halve the enemy's maxstam (expected ${Math.round(expectedEnemyMaxStam / 2)}, got ${B.e.maxstam})`);
+    assert(B.p.stamina === B.p.maxstam, "the player should already sit at the halved max stamina when the trial starts");
+    B.p.stamina = 3;
+    H.startTurn(B.p);
+    assert(B.p.stamina === B.p.maxstam, 'stamina should refill to the halved max at the start of every turn, same as a normal battle');
     clearTimers();
 
     // -- a trial win pays more than a plain side hunt at the same stage, and never advances the ladder --
@@ -2188,6 +2206,32 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(B.state === 'over', `No Healing trial battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
     assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
+    assert(sv.stage === 7, 'a full bot-vs-bot trial must still leave save.stage untouched');
+    clearTimers();
+
+    // -- bot-vs-bot turn integrity holds through a full Halved Stamina trial (less movement range, still terminates) --
+    sv.dragonKey = 'volt'; sv.level = 4; sv.exp = 0; sv.stage = 7;
+    H.startTrial('halfstam');
+    B = H.B;
+    lastTurn = 0; prevSide = null; turnsSeen = 0;
+    const problems2 = [];
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems2.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems2.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `Halved Stamina trial battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems2.length === 0, problems2.join('; '));
     assert(sv.stage === 7, 'a full bot-vs-bot trial must still leave save.stage untouched');
     clearTimers();
   });
