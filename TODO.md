@@ -1024,7 +1024,7 @@ rather than inventing new systems from scratch.*
     charge/used-this-turn bookkeeping matched the harness assertions — no overflow or
     cutoff at 1280px width and no console errors.
 
-- [ ] **Halved-stamina trial modifier.** Trials shipped with two modifiers (No Healing,
+- [x] **Halved-stamina trial modifier.** Trials shipped with two modifiers (No Healing,
   Windstorm); the item's own note flagged the third Intent idea — halved max stamina — as
   left for a future run.
   - *Intent:* a third trial constraint that changes the *movement* half of a turn instead of
@@ -1033,9 +1033,34 @@ rather than inventing new systems from scratch.*
     trial's dragon(s), matching how `windx2` scales `B.wind` in `rollWind` rather than
     touching `tryMove` directly.
   - *Extend:* `TRIAL_MODS`, `startTrial`, the Den's Trial modal, `Dragon` stamina fields.
+  - *Shipped:* a third `TRIAL_MODS` entry, `halfstam` ("Halved Stamina", 🐌), following the
+    Weigh note exactly — `startTrial` rounds both dragons' `maxstam` (and current `stamina`)
+    down to half immediately after they're constructed, the same "scale it once at battle
+    start" approach `windx2` uses on `B.wind`, rather than touching `Dragon.tryMove` or its
+    per-frame drain math. Because `startTurn` already refills `d.stamina=d.maxstam` at the
+    top of every turn, halving `maxstam` once is sufficient — the halved cap sticks for the
+    rest of the battle with no extra state to track. The Den's Trial modal, the HUD's
+    `TRIAL: …` tag, and `victory()`'s off-ladder/trial-rate reward branch are all already
+    data-driven off `TRIAL_MODS`/`B.trial`, so the new modifier needed no plumbing beyond the
+    data entry and the two-line halving in `startTrial`. Guessed the plain 50%/round-to-
+    nearest cut (matching stone/gear rounding elsewhere) with no separate tuning for AI vs
+    player — a future run could retune the fraction or scale it per-dragon if halved stamina
+    proves too harsh/mild once played at higher stages.
   - *Done when:* the constraint is visibly enforced (a shorter movement range in battle) and
     a win still pays the trial rate; harness asserts stamina is halved during the trial and
-    the bot-vs-bot sim stays green.
+    the bot-vs-bot sim stays green. **Verified**: harness test 28 (extended) checks
+    `TRIAL_MODS` now carries `halfstam`, that starting a Halved Stamina trial halves both
+    dragons' `maxstam` from the real `90+agi` formula (agi already includes the player's own
+    gear) and leaves the player already sitting at the halved cap, that a real `startTurn`
+    call still refills stamina to the halved max on every subsequent turn, and drives a full
+    bot-vs-bot campaign battle under the Halved Stamina trial to completion with strict turn
+    alternation (the AI solving with a smaller movement budget doesn't stall or destabilize
+    the turn loop). Also confirmed live in Playwright/Chromium: the Trial modal lists all
+    three modifiers including "🐌 Halved Stamina", a live battle's HUD tag reads "TRIAL:
+    HALVED STAMINA · CINDER WASTES", and driving the real `Dragon.tryMove` loop for the same
+    simulated 2 seconds of held movement shows the halved-stamina dragon travels 158px before
+    stamina hits 0 versus 195px+ (with stamina to spare) for an un-modified battle dragon of
+    the same build.
 
 ---
 

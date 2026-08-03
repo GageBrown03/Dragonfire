@@ -1342,6 +1342,7 @@ const TRIAL_MULT=0.85;
 const TRIAL_MODS={
   noheal:{name:'No Healing',ic:'🚫',desc:'The Heal skill is disabled for both dragons this fight.'},
   windx2:{name:'Windstorm',ic:'🌪',desc:'Wind blows twice as hard every turn.'},
+  halfstam:{name:'Halved Stamina',ic:'🐌',desc:'Both dragons move with half their normal stamina this fight.'},
 };
 function startTrial(modKey){
   if(!save.dragonKey||!TRIAL_MODS[modKey])return;
@@ -1353,6 +1354,10 @@ function startTrial(modKey){
   const keys=Object.keys(DRAGONS).filter(isDragonUnlocked);
   B.e=new Dragon(keys[randi(0,keys.length-1)],Math.max(1,save.level),true,SPAWN_E,false);
   B.e.facing=-1;
+  if(modKey==='halfstam'){
+    B.p.maxstam=Math.round(B.p.maxstam/2); B.p.stamina=B.p.maxstam;
+    B.e.maxstam=Math.round(B.e.maxstam/2); B.e.stamina=B.e.maxstam;
+  }
   B.aim.ang=45; B.aim.pow=0; B.aim.charging=false; B.aim.skill='shot';
   $('itemCtl').style.display='flex';
   rollWind();
