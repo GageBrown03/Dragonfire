@@ -508,7 +508,8 @@ const SKILLS={
   oblivionshard:{ic:'🕳', name:'Oblivion Shard', type:'attack', cost:50, base:78, radius:54, spd0:4.6, spdK:.22, windless:true, freeze:1, poison:3, desc:'A windless shard of unraveling dark — freezes and poisons on impact.'},
   /* hidden sub-munitions */
   meteorSub:{hidden:true, type:'attack', base:42, radius:44, spd0:4.0, spdK:.20},
-  chainSub: {hidden:true, type:'attack', base:60, radius:44, spd0:5.0, spdK:.23, windless:true}
+  chainSub: {hidden:true, type:'attack', base:60, radius:44, spd0:5.0, spdK:.23, windless:true},
+  stormboltSub:{hidden:true, type:'attack', base:55, radius:40, spd0:5.0, spdK:.23, windless:true}
 };
 
 /* ---------- dragons ---------- */
@@ -1165,6 +1166,7 @@ class Dragon{
    ===================================================================== */
 const PCOL={
   glacial:['#bdefff','#e8fbff'], bolt:['#fff3a8','#fffbe0'], chain:['#fff3a8','#fffbe0'], chainSub:['#fff3a8','#ffffff'],
+  stormboltSub:['#fff3a8','#ffffff'],
   boulder:['#b8a48a','#6e5a42'], roller:['#b8a48a','#6e5a42'], fang:['#b88aff','#2a1a40'],
   toxin:['#b9e84a','#e9ffc0'], miasma:['#9fd435','#dcffa0'], meteor:['#ffb35e','#fff7e8'], meteorSub:['#ff9a4d','#fff1d0']
 };
@@ -1614,7 +1616,8 @@ function dealDamage(att,tgt,base,falloff,skillKey){
 const BOSS_HAZARDS={
   ember:{label:'scorch',   col:'#ff8a3d', col2:'#ffd23f'},
   frost:{label:'ice wall', col:'#bdefff', col2:'#e8fbff'},
-  terra:{label:'quake',    col:'#caa27a', col2:'#8a6a45'}
+  terra:{label:'quake',    col:'#caa27a', col2:'#8a6a45'},
+  volt: {label:'stormbolt',col:'#fff3a8', col2:'#8fd6ff'}
 };
 function triggerBossHazard(boss){
   const hz=BOSS_HAZARDS[boss.key]; if(!hz)return;
@@ -1637,6 +1640,14 @@ function triggerBossHazard(boss){
     announce(boss.name+' quakes open a crater underfoot!');
     burst(fx,fy-20,[hz.col,hz.col2,'#ffffff'],22,3.4,{up:1.8,size:5});
     cam.shake=Math.min(16,cam.shake+7);
+  }else if(boss.key==='volt'){
+    // Reuses the same B.queue push sk.sky already uses for chainSub — a real second
+    // projectile, queued to launch after the current one settles, not a new state machine.
+    const foe=other(boss), fx=foe.x;
+    B.queue.push({d:boss, skillKey:'stormboltSub', ov:{x:fx, y:Math.max(70,groundAt(fx)-460), vx:0, vy:13}, amp:false});
+    floatTxt(fx,foe.y-140,'A second bolt arcs down!',hz.col);
+    announce(boss.name+"'s bolt arcs to strike a second point!");
+    burst(fx,groundAt(fx)-30,[hz.col,hz.col2,'#ffffff'],14,2.6,{up:1.6,size:4});
   }
 }
 

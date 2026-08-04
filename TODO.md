@@ -1062,6 +1062,109 @@ rather than inventing new systems from scratch.*
     stamina hits 0 versus 195px+ (with stamina to spare) for an un-modified battle dragon of
     the same build.
 
+## Tier I — Third wave of polish (queue ran dry a third time)
+
+*Added 2026-08-04 — Tiers A–H are all shipped and the queue ran dry again. Same rules as
+always: read CLAUDE.md, topmost unchecked, one per run, treat every item as a direction not
+a spec. This wave again leans on a note-for-a-future-run left by an earlier item rather than
+inventing a system from scratch.*
+
+- [x] **Boss-only hazards, round three: Stormcrown.** Only Cindermaw (ember), Glacierfang
+  (frost), and Quakehide (terra) had a signature hazard; the boss-hazards item's own note
+  explicitly deferred Stormcrown's "bolt arcs to a second point" idea, flagging it as
+  needing its own dedicated run because it means pushing into `B.queue` from inside
+  `dealDamage` mid-explode — a real risk to the turn loop that deserved more care than a
+  second addition bundled into an already-shipped feature.
+  - *Intent:* a fourth alpha whose name predicts a specific thing that happens to the arena
+    on enrage — this time a genuine second point of damage, not another terrain edit.
+  - *Weigh:* reuse the exact shape `sk.sky`'s `chainSub` already proves safe (`explode()`
+    pushing `{d, skillKey, ov}` onto `B.queue`, launched by the existing
+    `finishAction`/`waitSettle`/`launchNext` machinery) rather than inventing a new queue
+    interaction. Target the foe's exact position (deterministic, no `rand()`) so the bolt
+    reads as a real retaliation, not a random peek.
+  - *Extend:* `BOSS_HAZARDS`, `triggerBossHazard`, `B.queue`/`launchNext` (the `sk.sky`
+    pattern), a new hidden `SKILLS` sub-munition alongside `chainSub`/`meteorSub`.
+  - *Shipped:* a new hidden `SKILLS.stormboltSub` entry (`hidden:true`, `windless:true`, no
+    `sky`/`build`/`zone` flags so it can never itself chain or recurse) and a `volt` branch
+    in `triggerBossHazard`, added to the exact same `BOSS_HAZARDS` map and enrage-triggered
+    call site the other three hazards already use — no second state machine. On enrage it
+    pushes `{d:boss, skillKey:'stormboltSub', ov:{x:foe.x, y:high-above, vx:0, vy:13}}` onto
+    `B.queue`, precisely mirroring the `sk.sky`/`chainSub` shape `explode()` already relies
+    on for Sky Chain/Quakecall — the queued bolt falls straight down onto the foe's exact
+    current position (no `rand()` in the targeting), landing after the current action
+    settles via the same `finishAction`→`waitSettle`→`launchNext` sequence chainSub already
+    exercises. Telegraphed the same three ways as the other hazards: an `announce()` toast
+    ("Stormcrown's bolt arcs to strike a second point!"), a `floatTxt` ("A second bolt arcs
+    down!"), and a `burst()`. While verifying, discovered and fixed a real RNG-stream-shift
+    bug this specific hazard introduced: unlike the zone/terrain hazards, a live volt enrage
+    now queues a real projectile whose `explode()` fires `burst()`/particle effects that
+    consume dozens of `Math.random()` draws — previously a no-op — which shifted the
+    harness's shared seeded stream for every test after the one exercising it. Fixed at the
+    source (not by avoiding the draws, which would just be hiding the same cost real
+    gameplay pays) by pinning the harness's own new assertions/bot-vs-bot pass onto an
+    independent local PRNG so they draw zero extra from the shared stream, and by bumping
+    one pre-existing, unrelated test's frame budget (8000→16000, matching the same
+    documented-risk pattern the biome-weather and 3rd-signature-tier features already used)
+    since a wild volt alpha enraging naturally during an earlier test now legitimately takes
+    a bit longer to resolve under the shifted seed — confirmed with a much larger budget that
+    it finishes on its own (turn 40+), not a stuck loop.
+  - *Done when:* a fourth alpha's hazard is visible and distinct on enrage, telegraphed the
+    same way the others are, and doesn't destabilize the turn loop; harness extends the
+    existing boss-hazard test with the new boss and keeps the bot-vs-bot sim green.
+    **Verified**: harness test 20 (extended) confirms `BOSS_HAZARDS.volt` exists and maps to
+    a real alpha title; that a direct `triggerBossHazard` call on a fresh Stormcrown queues
+    exactly one `stormboltSub` bolt owned by the boss and targeted at the foe's exact
+    position, without touching zones or terrain (Cindermaw/Glacierfang/Quakehide's shapes);
+    that a boss with no mapped hazard (Nightgorge) still does none of the above; and drives a
+    dedicated full bot-vs-bot campaign battle forcing a Stormcrown alpha to completion with
+    strict turn alternation while asserting it actually enraged and the bolt actually
+    launched as a real projectile live. Also confirmed live in Playwright/Chromium: driving a
+    real `triggerBossHazard()` call against a Stormcrown built at 45% HP shows the toast
+    "Stormcrown's bolt arcs to strike a second point!" and the float "A second bolt arcs
+    down!" on the HUD/canvas, with `B.queue` carrying exactly one real
+    `{skillKey:'stormboltSub', ov:{x:<foe's exact x>,...}}` entry matching the harness
+    assertions, and the UI kept animating normally afterward with no stall or console errors.
+  - *Note for a future run:* Nightgorge (dusk) and Plaguewing (venom) still just enrage —
+    2 of 6 alphas remain without a signature hazard. Nightgorge's "blinks unpredictably" idea
+    from the original item needs a `rand()` draw for the blink target, so budget for the same
+    stream-shift risk this run just hit (or make the blink deterministic, e.g. always to the
+    opposite side of the foe, the way this run kept Stormcrown's targeting `rand()`-free).
+
+- [ ] **Boss-only hazards, round four: Nightgorge and Plaguewing.** The last two alphas
+  (dusk, venom) still just enrage with no signature hazard — see the note above.
+  - *Intent:* close out the full six-boss hazard set so every alpha's name predicts a
+    specific thing that happens to the arena, not just Cindermaw/Glacierfang/Quakehide/
+    Stormcrown.
+  - *Weigh:* Nightgorge (Shadow) blinking unpredictably is the trickiest of the two — decide
+    deliberately whether its blink target needs real randomness (budget for the stream-shift
+    risk, matching this run's fix) or can stay deterministic (e.g. always swap sides with the
+    foe). Plaguewing's "Miasma lingers longer" is the lower-risk pick — it can likely reuse
+    the existing `zone` shape directly, the way Cindermaw already does, just with a longer
+    `turns` value and its own color/label.
+  - *Extend:* `BOSS_HAZARDS`, `triggerBossHazard`, the `zone`/`blink` shapes already used by
+    Miasma/Shadow Step.
+  - *Done when:* both remaining alphas have a hazard visibly distinct from a plain enrage,
+    telegraphed the same way the first four are, and the bot-vs-bot sim stays green; harness
+    extends the existing boss-hazard test to cover both.
+
+- [ ] **New Game+ — a ladder reset with a permanent carry-over.** The stage ladder currently
+  only goes up; nothing gives a player who reaches the top (or just wants a fresh run) a
+  reason to restart deliberately rather than just stopping.
+  - *Intent:* a deliberate "start a new career" option that resets the grind (stage, level,
+    gold, gear) but keeps something permanent and meaningful from the old run, so replaying
+    the ladder from stage 1 feels like a fresh, slightly-stronger run rather than punitive.
+  - *Weigh:* what resets vs what's permanent (career record/achievements/highest-stage-ever
+    should probably persist; gear/gold/stage/level should probably reset)? What's the
+    carry-over bonus — a small permanent stat bump, a discount, an early unlock? Where does
+    the option live (the Den, alongside Side Hunt/Trial)? Does it require reaching a stage
+    threshold first, or is it always available?
+  - *Extend:* `save` (new prestige-count field with a safe default), `wipeSave`/the save
+    loader (a softer reset than a full wipe), the Den, `victory`/the stage ladder from Tier A.
+  - *Done when:* the player can deliberately reset their ladder run from the Den, the reset
+    is visible (stage/level/gold back to the start), and the chosen carry-over is visible and
+    measurably in effect on the new run; harness asserts what resets, what persists, and that
+    the bot-vs-bot sim stays green on a post-reset battle.
+
 ---
 
 *Standing concern, not a task:* difficulty / EXP / gold curve tuning is evaluated
