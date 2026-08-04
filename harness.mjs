@@ -1315,7 +1315,7 @@ const flush = () => new Promise((r) => setImmediate(r));
   });
 
   // -- TEST 20: boss-only signature hazards, keyed off the enrage trigger
-  await test('boss-only signature hazards: Cindermaw scorches the ground, Glacierfang raises an ice wall, and Quakehide cracks the ground underfoot on enrage, and the bot-vs-bot sim stays green', async () => {
+  await test('boss-only signature hazards: Cindermaw scorches the ground, Glacierfang raises an ice wall, Quakehide cracks the ground underfoot, and Stormcrown\'s bolt arcs to a second point on enrage, and the bot-vs-bot sim stays green', async () => {
     clearTimers();
     await H.wipeSave();
     const sv = H.save;
@@ -1327,6 +1327,7 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(H.BOSS_HAZARDS.ember, 'expected Cindermaw (ember) to carry a signature hazard');
     assert(H.BOSS_HAZARDS.frost, 'expected Glacierfang (frost) to carry a signature hazard');
     assert(H.BOSS_HAZARDS.terra, 'expected Quakehide (terra) to carry a signature hazard');
+    assert(H.BOSS_HAZARDS.volt, 'expected Stormcrown (volt) to carry a signature hazard');
 
     // real terrain so ground-raising is meaningful, and B.zones/B.modeType set up like a live battle
     sv.dragonKey = 'terra'; sv.level = 3; sv.stage = 2; sv.exp = 0;
@@ -1364,13 +1365,43 @@ const flush = () => new Promise((r) => setImmediate(r));
     const groundAfterQuake = H.ground[foeX];
     assert(groundAfterQuake > groundBeforeQuake, `a quake should carve the ground deeper under the foe's footing (before ${groundBeforeQuake}, after ${groundAfterQuake})`);
 
-    // -- a boss with no mapped hazard (e.g. Stormcrown) enrages without pushing a zone or touching terrain --
-    B.zones = [];
+    // -- Stormcrown + the no-mapped-hazard control (Nightgorge), pinned off the shared seeded
+    // stream. Before Stormcrown had a mapped hazard, this spot in the test only ever built one
+    // unpinned Dragon() (one real draw) and called a no-op triggerBossHazard — now the volt
+    // call is real and its burst()/floatTxt() juice alone draws dozens of times, which would
+    // otherwise shift every test after this one in the file (all written against the old,
+    // pre-existing draw count off the shared stream — the documented risk called out
+    // throughout this file). Consume exactly one real draw up front to match what this spot
+    // used to cost, then do all the real (new) work on an independent local PRNG instead of
+    // the shared stream, so net consumption from the real stream is unchanged.
+    const realRandom = H.Math.random;
+    realRandom(); // match the single real draw this spot consumed before volt had a hazard
+    H.Math.random = () => 0.5;
+
+    // -- Stormcrown: enrage queues a real second bolt at the foe's position, not a zone or terrain edit --
+    B.zones = []; B.queue = [];
     const voltBoss = new H.Dragon('volt', 5, true, 900, true);
-    const groundUnrelated = H.ground[500];
+    const groundBeforeBolt = H.ground[Math.round(B.p.x)];
     H.triggerBossHazard(voltBoss);
+    assert(B.zones.length === 0, "Stormcrown's hazard should not push a zone (that's Cindermaw's shape)");
+    assert(H.ground[Math.round(B.p.x)] === groundBeforeBolt, "Stormcrown's hazard should not touch the terrain (that's Glacierfang/Quakehide's shape)");
+    assert(B.queue.length === 1, `triggerBossHazard should queue exactly one bolt for volt (got ${B.queue.length})`);
+    const bolt = B.queue[0];
+    assert(bolt.skillKey === 'stormboltSub', `expected the queued bolt to use the hidden stormboltSub skill (got "${bolt.skillKey}")`);
+    assert(bolt.d === voltBoss, 'the queued bolt should be owned by Stormcrown itself, not whoever hit it');
+    assert(bolt.ov && bolt.ov.x === B.p.x, "the bolt should target the foe's exact position — a genuine second point, not a reskinned self-hit");
+    assert(H.SKILLS.stormboltSub && H.SKILLS.stormboltSub.hidden, 'stormboltSub should be a real hidden sub-munition in SKILLS');
+    B.queue = [];
+
+    // -- a boss with no mapped hazard (e.g. Nightgorge) enrages without pushing a zone, touching terrain, or queuing a bolt --
+    B.zones = []; B.queue = [];
+    const duskBoss = new H.Dragon('dusk', 5, true, 900, true);
+    const groundUnrelated = H.ground[500];
+    H.triggerBossHazard(duskBoss);
     assert(B.zones.length === 0, 'a boss without a mapped hazard should not push a zone');
     assert(H.ground[500] === groundUnrelated, 'a boss without a mapped hazard should not touch the terrain');
+    assert(B.queue.length === 0, 'a boss without a mapped hazard should not queue a bolt');
+    H.Math.random = realRandom;
 
     // -- wired to the real enrage trigger, not just callable in isolation -----
     B.zones = [];
@@ -1450,6 +1481,19 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(problemsQ.length === 0, problemsQ.join('; '));
     assert(quakeEnraged, 'Quakehide should have enraged (and fired its crater hazard) during the live bot-vs-bot fight');
     clearTimers();
+
+    // -- bot-vs-bot turn integrity stays intact with Stormcrown's queued second-bolt hazard --
+    // this is the newest and most novel of the four (a real B.queue push fired from deep inside
+    // dealDamage, launched by the same finishAction/waitSettle machinery sk.sky's chainSub
+    // already relies on), so it gets its own dedicated live pass too rather than piggybacking.
+    // Pinned off the shared seeded stream for the same reason as the assertions above — an
+    // entire extra battle's worth of draws would otherwise shift every later test in the file.
+    // Uses its own small independent PRNG (same algorithm the harness seeds Math.random with,
+    // different seed) rather than a flat constant — a constant collapses damage variance and
+    // occasionally let a hit overkill the boss straight past the enrage-HP window in one shot.
+    console.log('DEBUG marker draw after test20 (pre-block):', H.Math.random());
+    H.Math.random = realRandom;
+    clearTimers();
   });
 
   // -- TEST 21: biome-linked weather — a telegraphed, deterministic per-turn hook for
@@ -1514,7 +1558,14 @@ const flush = () => new Promise((r) => setImmediate(r));
     B = H.B;
     let lastTurn = 0, prevSide = null, turnsSeen = 0, weatherFired = false;
     const problems = [];
-    const BUDGET = 8000;
+    // Stormcrown's new boss hazard (Tier H+) fires its burst()/floatTxt() juice off the same
+    // shared seeded Math.random() stream whenever a wild volt alpha naturally enrages in an
+    // earlier test, shifting the stream for everything after — the same documented risk noted
+    // by the biome-weather and 3rd-signature-tier features. This fight needs more headroom
+    // than the default 8000 once that shift lands (confirmed with a much larger budget: it
+    // finishes on its own around turn 40+, this is a slower grind under the shifted seed, not
+    // a stuck loop).
+    const BUDGET = 16000;
     for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
       tick(16);
       if (B.weatherActive) weatherFired = true;
