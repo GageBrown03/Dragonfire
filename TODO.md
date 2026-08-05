@@ -1130,7 +1130,7 @@ inventing a system from scratch.*
     stream-shift risk this run just hit (or make the blink deterministic, e.g. always to the
     opposite side of the foe, the way this run kept Stormcrown's targeting `rand()`-free).
 
-- [ ] **Boss-only hazards, round four: Nightgorge and Plaguewing.** The last two alphas
+- [x] **Boss-only hazards, round four: Nightgorge and Plaguewing.** The last two alphas
   (dusk, venom) still just enrage with no signature hazard — see the note above.
   - *Intent:* close out the full six-boss hazard set so every alpha's name predicts a
     specific thing that happens to the arena, not just Cindermaw/Glacierfang/Quakehide/
@@ -1143,9 +1143,46 @@ inventing a system from scratch.*
     `turns` value and its own color/label.
   - *Extend:* `BOSS_HAZARDS`, `triggerBossHazard`, the `zone`/`blink` shapes already used by
     Miasma/Shadow Step.
+  - *Shipped:* both mapped into the same `BOSS_HAZARDS`/`triggerBossHazard` function the other
+    four already use, fired from the identical enrage branch in `dealDamage` — no second state
+    machine, no new trigger point, closing out the full six-alpha set. **Nightgorge** (`dusk`)
+    went with the deterministic option from the Weigh list rather than budgeting for the
+    stream-shift risk: on enrage it always blinks to the far side of the foe from wherever it
+    currently stands (`dir=(boss.x<foe.x)?1:-1`, then clamps to `foe.x+dir*160` within world
+    bounds) — genuinely "unpredictable" from the player's perspective since it depends on live
+    battle positions, but costs zero `Math.random()` draws. Reuses the same
+    `x/y/air/vy/fallFrom/facing` fields `castInstant`'s own Shadow Step blink already sets, so
+    it lands on real ground via the existing `groundAt`, not a parallel teleport path.
+    **Plaguewing** (`venom`) took the lower-risk pick exactly as scoped: reuses Miasma's own
+    `sk.zone` shape via `B.zones.push`, just longer-lived (9 turns vs Miasma's 4) and with its
+    own color/label (`'plague'`, a sickly yellow-green, distinct from both Miasma's default
+    green and Cindermaw's orange scorch) so it reads as Plaguewing's own hazard rather than
+    reskinned Miasma. Telegraphed the same three ways as the first four: an `announce()` toast,
+    a `floatTxt`, and a `burst()`. Guessed the 160px blink offset (matching Shadow Step's own
+    240px scaled down slightly since a boss threat should feel close, not distant) and the
+    9-turn plague duration (roughly double Miasma's 4) — a future run could retune either once
+    they're played more.
   - *Done when:* both remaining alphas have a hazard visibly distinct from a plain enrage,
     telegraphed the same way the first four are, and the bot-vs-bot sim stays green; harness
-    extends the existing boss-hazard test to cover both.
+    extends the existing boss-hazard test to cover both. **Verified**: harness test 20
+    (extended) checks `BOSS_HAZARDS` now covers all six original alphas; that a direct
+    `triggerBossHazard` call on a fresh Nightgorge blinks it to the exact expected far-side
+    position (deterministic, no zone/queue touched) and it lands on real ground, not airborne;
+    that a fresh Plaguewing pushes exactly one zone with its own label/color and a longer
+    `turns` than a normal Miasma cast (and no queue/terrain touched); that a boss with no
+    mapped hazard (Nyx/Voidmaw, off the original six-alpha set) still enrages doing none of the
+    above; and drives two dedicated full bot-vs-bot campaign battles — one forcing a Nightgorge
+    alpha (asserting it actually enraged, actually blinked to a new position, and stayed within
+    world bounds) and one forcing a Plaguewing alpha (asserting its zone actually appeared) —
+    each to completion with strict turn alternation. Both new live battle passes run on an
+    independent local PRNG rather than the shared seeded stream, so they don't shift any later
+    test's RNG-dependent outcome (the exact documented risk this tier has hit repeatedly;
+    caught and fixed here after the achievements test's bot-vs-bot win flipped to a loss on the
+    first pass). Also confirmed live in Playwright/Chromium: forcing a Nightgorge hazard mid-
+    battle shows the toast "Nightgorge blinks behind you!" and the boss sprite visibly jumps
+    from the far spawn to behind the player dragon (screenshot, x 1380→140); forcing a
+    Plaguewing hazard shows "A lingering plague cloud spreads!" with a distinct olive-green
+    zone ring rendered around the boss (screenshot), no console errors in either run.
 
 - [ ] **New Game+ — a ladder reset with a permanent carry-over.** The stage ladder currently
   only goes up; nothing gives a player who reaches the top (or just wants a fresh run) a

@@ -206,7 +206,7 @@ function loadGame() {
       STONE_TIER_PCT, STONE_MAX_TIER, STONE_SOCKETS, STONE_MISMATCH_MULT, STONE_DROP_BASE, STONE_TIER_WEIGHTS,
       refreshStones, victory,
       isDragonUnlocked, UNLOCK_REQS, buildCards,
-      BOSS_HAZARDS, triggerBossHazard,
+      BOSS_HAZARDS, triggerBossHazard, WORLD,
       get obstacles(){ return obstacles; }, BIOME_WEATHER, triggerBiomeWeather,
       aiThink, buildSkillbar, UNIQ3_LEVEL, WARD_REFLECT_PCT,
       rollWind, forecastWindDisplay, WIND_MAX,
@@ -1315,19 +1315,21 @@ const flush = () => new Promise((r) => setImmediate(r));
   });
 
   // -- TEST 20: boss-only signature hazards, keyed off the enrage trigger
-  await test('boss-only signature hazards: Cindermaw scorches the ground, Glacierfang raises an ice wall, Quakehide cracks the ground underfoot, and Stormcrown\'s bolt arcs to a second point on enrage, and the bot-vs-bot sim stays green', async () => {
+  await test('boss-only signature hazards: Cindermaw scorches the ground, Glacierfang raises an ice wall, Quakehide cracks the ground underfoot, Stormcrown\'s bolt arcs to a second point, Nightgorge blinks behind the foe, and Plaguewing\'s plague cloud lingers on enrage — the full six-boss set — and the bot-vs-bot sim stays green', async () => {
     clearTimers();
     await H.wipeSave();
     const sv = H.save;
 
     // -- config sanity: every mapped hazard belongs to a real alpha title -----
     const hazardKeys = Object.keys(H.BOSS_HAZARDS);
-    assert(hazardKeys.length >= 1, 'expected at least one boss-signature hazard defined');
+    assert(hazardKeys.length >= 6, `expected all six original alphas to carry a signature hazard now (got ${hazardKeys.length})`);
     for (const key of hazardKeys) assert(H.ALPHA_TITLES[key], `BOSS_HAZARDS key "${key}" should be a real alpha title`);
     assert(H.BOSS_HAZARDS.ember, 'expected Cindermaw (ember) to carry a signature hazard');
     assert(H.BOSS_HAZARDS.frost, 'expected Glacierfang (frost) to carry a signature hazard');
     assert(H.BOSS_HAZARDS.terra, 'expected Quakehide (terra) to carry a signature hazard');
     assert(H.BOSS_HAZARDS.volt, 'expected Stormcrown (volt) to carry a signature hazard');
+    assert(H.BOSS_HAZARDS.dusk, 'expected Nightgorge (dusk) to carry a signature hazard');
+    assert(H.BOSS_HAZARDS.venom, 'expected Plaguewing (venom) to carry a signature hazard');
 
     // real terrain so ground-raising is meaningful, and B.zones/B.modeType set up like a live battle
     sv.dragonKey = 'terra'; sv.level = 3; sv.stage = 2; sv.exp = 0;
@@ -1393,11 +1395,44 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(H.SKILLS.stormboltSub && H.SKILLS.stormboltSub.hidden, 'stormboltSub should be a real hidden sub-munition in SKILLS');
     B.queue = [];
 
-    // -- a boss with no mapped hazard (e.g. Nightgorge) enrages without pushing a zone, touching terrain, or queuing a bolt --
+    // -- Nightgorge: enrage blinks the boss to the far side of the foe from wherever it
+    // currently stands — deterministic ("always the opposite side"), so no rand() draw shifts
+    // the shared seeded stream, matching the note left by the earlier boss-hazard runs.
     B.zones = []; B.queue = [];
+    const duskFoe = B.p; // still the real 'terra' player dragon from startBattle(2) above
     const duskBoss = new H.Dragon('dusk', 5, true, 900, true);
-    const groundUnrelated = H.ground[500];
+    duskBoss.x = duskFoe.x - 200; duskBoss.y = H.ground[Math.round(duskBoss.x)]; // start left of the foe
+    const expectedDir = (duskBoss.x < duskFoe.x) ? 1 : -1;
+    const expectedX = Math.max(40, Math.min(H.WORLD.w - 40, duskFoe.x + expectedDir * 160));
     H.triggerBossHazard(duskBoss);
+    assert(B.zones.length === 0, "Nightgorge's hazard should not push a zone (that's Cindermaw/Plaguewing's shape)");
+    assert(B.queue.length === 0, "Nightgorge's hazard should not queue a projectile (that's Stormcrown's shape)");
+    assert(Math.abs(duskBoss.x - expectedX) < 1, `Nightgorge should blink to the far side of the foe (expected x≈${expectedX}, got ${duskBoss.x})`);
+    assert(duskBoss.y === H.ground[Math.round(duskBoss.x)], 'Nightgorge should land on real ground after blinking, not float mid-air');
+    assert(!duskBoss.air, 'Nightgorge should not be left airborne after blinking');
+
+    // -- Plaguewing: enrage settles a lingering plague cloud — Miasma's own zone shape (sk.zone),
+    // just longer-lived and its own color/label, so it reads as Plaguewing's own hazard, not
+    // reskinned Miasma or Cindermaw's scorch --
+    B.zones = []; B.queue = [];
+    const venomBoss = new H.Dragon('venom', 5, true, 900, true);
+    H.triggerBossHazard(venomBoss);
+    assert(B.zones.length === 1, `triggerBossHazard should push exactly one zone for venom (got ${B.zones.length})`);
+    const plagueZone = B.zones[0];
+    assert(plagueZone.label && plagueZone.label !== 'miasma' && plagueZone.label !== zone.label,
+      `the plague zone should read as its own hazard, not miasma or Cindermaw's scorch (got "${plagueZone.label}")`);
+    assert(plagueZone.turns > H.SKILLS.miasma.zone.turns,
+      `the plague cloud should linger longer than a normal Miasma cast (miasma turns ${H.SKILLS.miasma.zone.turns}, got ${plagueZone.turns})`);
+    assert(plagueZone.col && plagueZone.col !== zone.col, 'the plague zone should render in its own color, distinct from Cindermaw\'s scorch');
+    assert(plagueZone.x === venomBoss.x, 'the plague zone should be centered on Plaguewing');
+    assert(B.queue.length === 0, "Plaguewing's hazard should not queue a projectile");
+
+    // -- a boss with no mapped hazard (Nyx/Voidmaw, off the original six-alpha set) enrages
+    // without pushing a zone, touching terrain, or queuing a bolt --
+    B.zones = []; B.queue = [];
+    const nyxBoss = new H.Dragon('nyx', 5, true, 900, true);
+    const groundUnrelated = H.ground[500];
+    H.triggerBossHazard(nyxBoss);
     assert(B.zones.length === 0, 'a boss without a mapped hazard should not push a zone');
     assert(H.ground[500] === groundUnrelated, 'a boss without a mapped hazard should not touch the terrain');
     assert(B.queue.length === 0, 'a boss without a mapped hazard should not queue a bolt');
@@ -1481,6 +1516,92 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(problemsQ.length === 0, problemsQ.join('; '));
     assert(quakeEnraged, 'Quakehide should have enraged (and fired its crater hazard) during the live bot-vs-bot fight');
     clearTimers();
+
+    // -- bot-vs-bot turn integrity stays intact with Nightgorge's positional blink hazard, and
+    // then Plaguewing's lingering plague cloud, each a real full battle's worth of draws. Both
+    // run on an independent local PRNG (same algorithm the harness seeds Math.random with, a
+    // different seed) rather than the shared stream, so neither shifts any later test's
+    // RNG-dependent outcome — the documented risk earlier boss-hazard/biome-weather/3rd-tier
+    // features hit when a new live pass was added mid-file.
+    const localRandom = (() => {
+      let s = 0xC0FFEE ^ 0x6D2B79F5;
+      return () => {
+        s = (s + 0x6D2B79F5) | 0;
+        let t = Math.imul(s ^ (s >>> 15), 1 | s);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    })();
+    const sharedRandom = H.Math.random;
+    H.Math.random = localRandom;
+
+    // -- bot-vs-bot turn integrity stays intact with Nightgorge's positional blink hazard --
+    // this is the riskiest of the two new hazards (it teleports a dragon mid-battle, touching
+    // the same air/land/facing state Quakehide's crater already exercises), so it gets its own
+    // dedicated live pass rather than piggybacking on the ember run above.
+    clearTimers();
+    sv.dragonKey = 'ember'; sv.level = 4; sv.stage = 5; sv.exp = 0;
+    H.startBattle(5);
+    assert(B.e.alpha, 'stage 5 should be an alpha battle');
+    B.e = new H.Dragon('dusk', B.e.level, true, H.SPAWN_E, true); // force Nightgorge so its hazard is exercised live
+    const duskStartX = B.e.x;
+    let lastTurnN = 0, prevSideN = null, turnsSeenN = 0, duskEnraged = false, duskBlinked = false;
+    const problemsN = [];
+    const BUDGET_N = 8000;
+    for (let i = 0; i < BUDGET_N && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.e.enraged) duskEnraged = true;
+      if (Math.abs(B.e.x - duskStartX) > 1) duskBlinked = true;
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurnN) {
+        if (B.turnNo - lastTurnN > 1) problemsN.push(`turn number jumped by ${B.turnNo - lastTurnN} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSideN !== null && side === prevSideN) problemsN.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSideN = side; lastTurnN = B.turnNo; turnsSeenN++;
+      }
+    }
+    assert(B.state === 'over', `Nightgorge battle did not finish within ${BUDGET_N} frames (stuck in state "${B.state}")`);
+    assert(turnsSeenN >= 4, `expected several turns, only saw ${turnsSeenN}`);
+    assert(problemsN.length === 0, problemsN.join('; '));
+    assert(duskEnraged, 'Nightgorge should have enraged during the live bot-vs-bot fight');
+    assert(duskBlinked, 'Nightgorge should have actually blinked to a new position during the live bot-vs-bot fight');
+    assert(B.e.x >= 40 && B.e.x <= H.WORLD.w - 40, `Nightgorge should stay within the world bounds after blinking (x=${B.e.x})`);
+    clearTimers();
+
+    // -- bot-vs-bot turn integrity stays intact with Plaguewing's lingering plague-cloud hazard --
+    clearTimers();
+    sv.dragonKey = 'ember'; sv.level = 4; sv.stage = 5; sv.exp = 0;
+    H.startBattle(5);
+    assert(B.e.alpha, 'stage 5 should be an alpha battle');
+    B.e = new H.Dragon('venom', B.e.level, true, H.SPAWN_E, true); // force Plaguewing so its hazard is exercised live
+    let lastTurnV = 0, prevSideV = null, turnsSeenV = 0, venomHazardFired = false;
+    const problemsV = [];
+    const BUDGET_V = 8000;
+    for (let i = 0; i < BUDGET_V && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.zones.some(z => z.owner === B.e)) venomHazardFired = true;
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurnV) {
+        if (B.turnNo - lastTurnV > 1) problemsV.push(`turn number jumped by ${B.turnNo - lastTurnV} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSideV !== null && side === prevSideV) problemsV.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSideV = side; lastTurnV = B.turnNo; turnsSeenV++;
+      }
+    }
+    assert(B.state === 'over', `Plaguewing battle did not finish within ${BUDGET_V} frames (stuck in state "${B.state}")`);
+    assert(turnsSeenV >= 4, `expected several turns, only saw ${turnsSeenV}`);
+    assert(problemsV.length === 0, problemsV.join('; '));
+    assert(venomHazardFired, 'Plaguewing should have enraged (and fired its plague-cloud hazard) during the live bot-vs-bot fight');
+    clearTimers();
+    H.Math.random = sharedRandom; // done with the two new live passes; back to the real stream
 
     // -- bot-vs-bot turn integrity stays intact with Stormcrown's queued second-bolt hazard --
     // this is the newest and most novel of the four (a real B.queue push fired from deep inside

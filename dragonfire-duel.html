@@ -1617,7 +1617,9 @@ const BOSS_HAZARDS={
   ember:{label:'scorch',   col:'#ff8a3d', col2:'#ffd23f'},
   frost:{label:'ice wall', col:'#bdefff', col2:'#e8fbff'},
   terra:{label:'quake',    col:'#caa27a', col2:'#8a6a45'},
-  volt: {label:'stormbolt',col:'#fff3a8', col2:'#8fd6ff'}
+  volt: {label:'stormbolt',col:'#fff3a8', col2:'#8fd6ff'},
+  dusk: {label:'blink',    col:'#c9aaff', col2:'#46297a'},
+  venom:{label:'plague',   col:'#c9ff4d', col2:'#5a7a1a'}
 };
 function triggerBossHazard(boss){
   const hz=BOSS_HAZARDS[boss.key]; if(!hz)return;
@@ -1648,6 +1650,24 @@ function triggerBossHazard(boss){
     floatTxt(fx,foe.y-140,'A second bolt arcs down!',hz.col);
     announce(boss.name+"'s bolt arcs to strike a second point!");
     burst(fx,groundAt(fx)-30,[hz.col,hz.col2,'#ffffff'],14,2.6,{up:1.6,size:4});
+  }else if(boss.key==='dusk'){
+    // Deterministic "unpredictable" blink: always reappears on the far side of the foe from
+    // where it currently stands, so no rand() draw shifts the shared seeded RNG stream.
+    const foe=other(boss), dir=(boss.x<foe.x)?1:-1;
+    const nx=clamp(foe.x+dir*160,40,WORLD.w-40);
+    boss.x=nx; boss.y=groundAt(nx); boss.air=false; boss.vy=0; boss.fallFrom=boss.y;
+    boss.facing=(foe.x>boss.x)?1:-1;
+    floatTxt(nx,boss.y-140,boss.name+' blinks behind you!',hz.col);
+    announce(boss.name+' vanishes and reappears on the other side!');
+    burst(nx,boss.y-24,[hz.col,hz.col2,'#ffffff'],20,3.2,{grav:0});
+    sfx.whirl();
+  }else if(boss.key==='venom'){
+    // Reuses Miasma's own zone shape (sk.zone) directly, just with a longer lifetime and its
+    // own color/label so it reads as Plaguewing's signature, not reskinned Miasma.
+    B.zones.push({x:boss.x,y:boss.y-14,r:100,turns:9,pct:.03,owner:boss,col:hz.col,col2:hz.col2,label:hz.label});
+    floatTxt(boss.x,boss.y-160,'A lingering plague cloud spreads!',hz.col);
+    announce(boss.name+"'s plague cloud lingers over the field!");
+    burst(boss.x,boss.y-24,[hz.col,hz.col2,'#ffffff'],20,3.6,{up:1.6,size:5});
   }
 }
 
