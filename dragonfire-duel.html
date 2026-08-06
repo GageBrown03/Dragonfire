@@ -336,6 +336,9 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
       <button class="subBtn" id="btnDenAch">Achievements</button>
       <button class="subBtn" id="btnDenTitle">Title</button>
     </div>
+    <div class="rowBtns">
+      <button class="subBtn" id="btnDenPrestige" title="Reset stage/level/gold/gear/skills — keeps your record, achievements and hunt grades, and permanently strengthens your dragon">New Game+</button>
+    </div>
   </div>
 
   <!-- modals -->
@@ -628,6 +631,24 @@ function unsocketStone(slot){
   const cur=save.stones.sockets[slot]; if(!cur)return false;
   addStone(cur.el,cur.tier); save.stones.sockets[slot]=null; persist(); return true;
 }
+/* ---------- New Game+ ---------- */
+// A ladder reset the player chooses deliberately once they've proven the current run:
+// stage/level/gold/gear/skills/amps/stones go back to the start, but the career record,
+// achievements and hunt-grade tally (the "who this dragon has been") persist, and each
+// reset stacks a small permanent stat bump so a fresh run is genuinely a little stronger,
+// not just cosmetic. Gated behind a real ladder milestone so it can't be spammed turn one.
+const PRESTIGE_STAGE_REQ=10, PRESTIGE_STAT_PCT=0.03;
+function canPrestige(){ return (save.record.bestStage||1)>=PRESTIGE_STAGE_REQ; }
+function newGamePlus(){
+  if(!canPrestige())return false;
+  const keepKey=save.dragonKey, keepRecord=save.record, keepAch=save.achieved,
+        keepSound=save.sound, keepPrestige=(save.prestige||0)+1;
+  save={v:1,dragonKey:keepKey,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},
+    amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:keepSound,
+    record:keepRecord,skillPts:0,skillUpg:{},stones:blankStones(),achieved:keepAch,prestige:keepPrestige};
+  persist();
+  return true;
+}
 // Only the player's own dragon in campaign benefits — mirrors skillMult's gating.
 // Matching element pays the full %, off-element pays a reduced share.
 function stoneMult(owner){
@@ -700,7 +721,7 @@ function triggerBiomeWeather(){
 
 /* ---------- persistent save ---------- */
 function blankRecord(){ return {wins:0,losses:0,alphaWins:0,bestStage:1,lifeGold:0,lifeExp:0,grades:{S:0,A:0,B:0,C:0}}; }
-let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{}};
+let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0};
 const SAVE_KEY='dragonfire-duel-save';
 let storageOK=false;
 async function loadSave(){
@@ -720,7 +741,8 @@ async function loadSave(){
       if(!save.stones)save.stones=blankStones();
       if(!save.stones.inv)save.stones.inv={};
       if(!Array.isArray(save.stones.sockets)||save.stones.sockets.length!==STONE_SOCKETS)save.stones.sockets=[null,null,null];
-      if(!save.achieved)save.achieved={};}}
+      if(!save.achieved)save.achieved={};
+      if(typeof save.prestige!=='number')save.prestige=0;}}
     storageOK=true;
   }catch(e){ storageOK=(typeof window.storage!=='undefined'); }
 }
@@ -729,7 +751,7 @@ function persist(){
   try{ window.storage.set(SAVE_KEY,JSON.stringify(save)).catch(()=>{}); }catch(e){}
 }
 async function wipeSave(){
-  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{}};
+  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0};
   try{ await window.storage.delete(SAVE_KEY);}catch(e){}
 }
 
@@ -1073,6 +1095,10 @@ class Dragon{
       this.agi+=GEAR.charm.vals[save.gear.charm||0];
       this.luk+=GEAR.talon.vals[save.gear.talon||0];
       this.elemWard=GEAR.ward.vals[save.gear.ward||0];
+      // New Game+: each reset permanently stacks a small % bump on top of gear.
+      const pMult=1+(save.prestige||0)*PRESTIGE_STAT_PCT;
+      this.atk=Math.round(this.atk*pMult); this.def=Math.round(this.def*pMult);
+      this.agi=Math.round(this.agi*pMult); this.luk=Math.round(this.luk*pMult);
     }
     this.maxstam=90+this.agi; this.stamina=this.maxstam;
     this.enraged=false;
@@ -2207,6 +2233,14 @@ $('btnDenTrial').addEventListener('click',()=>{sfx.click(); refreshTrial(); show
 $('btnTrialClose').addEventListener('click',()=>{sfx.click(); hideModals();});
 $('btnDenNext').addEventListener('click',()=>{sfx.click(); startBattle(save.stage);});
 $('btnDenSide').addEventListener('click',()=>{sfx.click(); startSideHunt();});
+$('btnDenPrestige').addEventListener('click',()=>{
+  if(!canPrestige())return;
+  sfx.click();
+  const nextN=(save.prestige||0)+1;
+  if(!confirm('Start New Game+ (run #'+(nextN+1)+')? Level, EXP, gold, gear, trained skills, amps and stones reset to the start. Wins/losses, best stage, achievements and hunt grades are kept, and your dragon permanently gains +'+Math.round(PRESTIGE_STAT_PCT*100)+'% ATK/DEF/AGI/LUK for this and every future run.'))return;
+  newGamePlus();
+  refreshDen();
+});
 $('btnDenTitle').addEventListener('click',()=>{sfx.click(); goTitle();});
 $('btnShopClose').addEventListener('click',()=>{sfx.click(); if(shopReturn==='den')refreshDen(); shopReturn==='mVictory'?showModal('mVictory'):hideModals();});
 $('btnNext').addEventListener('click',()=>{sfx.click(); goDen();});
@@ -2256,7 +2290,7 @@ function refreshDen(){
   const D=DRAGONS[save.dragonKey];
   $('denOrb').style.background='radial-gradient(circle at 32% 28%,'+D.belly+','+D.col+' 55%,'+D.col2+')';
   $('denName').textContent=D.name;
-  $('denLvl').textContent='Level '+save.level+' · '+D.el;
+  $('denLvl').textContent='Level '+save.level+' · '+D.el+(save.prestige?' · NG+'+save.prestige:'');
   const need=expNeed(save.level);
   $('denExpFill').style.width=Math.round(clamp(save.exp/need,0,1)*100)+'%';
   const biomeKey=BIOME_ORDER[(save.stage-1)%BIOME_ORDER.length];
@@ -2271,7 +2305,13 @@ function refreshDen(){
     '<span>best stage <b>'+rec.bestStage+'</b></span>'+
     '<span><b>'+rec.lifeGold+'g</b> earned</span>'+
     '<span title="Hunt grades earned">'+['S','A','B','C'].map(g=>'<b>'+rec.grades[g]+'</b>'+g).join(' ')+'</span>'+
-    '<span title="Achievements earned">🏆 <b>'+ACHIEVEMENTS.filter(a=>save.achieved[a.id]).length+'</b>/'+ACHIEVEMENTS.length+'</span>';
+    '<span title="Achievements earned">🏆 <b>'+ACHIEVEMENTS.filter(a=>save.achieved[a.id]).length+'</b>/'+ACHIEVEMENTS.length+'</span>'+
+    (save.prestige?'<span title="New Game+ resets — each stacks +'+Math.round(PRESTIGE_STAT_PCT*100)+'% ATK/DEF/AGI/LUK">♻ <b>'+save.prestige+'</b> NG+</span>':'');
+  const canNG=canPrestige();
+  $('btnDenPrestige').disabled=!canNG;
+  $('btnDenPrestige').title=canNG?
+    ('Reset stage/level/gold/gear/skills to the start — record, achievements and hunt grades are kept, and your dragon permanently gains +'+Math.round(PRESTIGE_STAT_PCT*100)+'% ATK/DEF/AGI/LUK (stacks with any earlier resets).'):
+    ('Reach stage '+PRESTIGE_STAGE_REQ+' at least once to unlock New Game+ (best stage so far: '+(rec.bestStage||1)+').');
   $('denGear').innerHTML=Object.keys(GEAR).map(k=>{
     const g=GEAR[k], tier=save.gear[k]||0;
     return '<span title="'+g.name+'">'+g.ic+' '+g.lbl+' T'+tier+'</span>';
