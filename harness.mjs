@@ -210,7 +210,8 @@ function loadGame() {
       get obstacles(){ return obstacles; }, BIOME_WEATHER, triggerBiomeWeather,
       aiThink, buildSkillbar, UNIQ3_LEVEL, WARD_REFLECT_PCT,
       rollWind, forecastWindDisplay, WIND_MAX,
-      ACHIEVEMENTS, checkAchievements, refreshAch, achRewardText
+      ACHIEVEMENTS, checkAchievements, refreshAch, achRewardText,
+      canPrestige, newGamePlus, PRESTIGE_STAGE_REQ, PRESTIGE_STAT_PCT
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -2405,6 +2406,117 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems2.length === 0, problems2.join('; '));
     assert(sv.stage === 7, 'a full bot-vs-bot trial must still leave save.stage untouched');
+    clearTimers();
+  });
+
+  // -- TEST 28: New Game+ — gated behind a milestone, resets the run, keeps the career record, stacks a permanent stat bonus --
+  await test('New Game+: gated behind a ladder milestone, resets the run but keeps the career record, and permanently raises resolved stats each reset', async () => {
+    clearTimers();
+    await H.wipeSave();
+    let sv = H.save;   // newGamePlus() (like wipeSave()) replaces the save object wholesale, so re-fetch H.save after each reset
+
+    // -- locked until the player has actually reached the milestone stage --
+    sv.dragonKey = 'ember'; sv.level = 6; sv.exp = 30; sv.gold = 500; sv.stage = 9;
+    sv.record.bestStage = H.PRESTIGE_STAGE_REQ - 1;
+    H.refreshDen();
+    assert(H.canPrestige() === false, `New Game+ should stay locked below stage ${H.PRESTIGE_STAGE_REQ} (best stage ${sv.record.bestStage})`);
+    assert(H.$('btnDenPrestige').disabled === true, "the Den's New Game+ button should render disabled while locked");
+    const blocked = H.newGamePlus();
+    assert(blocked === false, 'newGamePlus() should refuse to reset while locked');
+    assert(H.save === sv && sv.stage === 9, 'a refused prestige must not touch or replace the save at all');
+
+    // -- unlocks once the milestone is reached --
+    sv.record.bestStage = H.PRESTIGE_STAGE_REQ;
+    H.refreshDen();
+    assert(H.canPrestige() === true, 'New Game+ should unlock at the milestone stage');
+    assert(H.$('btnDenPrestige').disabled === false, "the Den's New Game+ button should render enabled once unlocked");
+
+    // -- drive the real Den button (confirm() is stubbed true in the harness) and check what resets vs persists --
+    sv.gear = { fang: 3, scale: 3, charm: 3, talon: 3, ward: 3 };
+    sv.skillPts = 2; sv.skillUpg = { shot: 2 };
+    sv.amps = { calm: 2, surge: 2, scope: 2 };
+    sv.stones = { inv: { fire_1: 2 }, sockets: [{ el: 'Fire', tier: 1 }, null, null] };
+    sv.achieved = { stage10: true };
+    sv.record.wins = 7; sv.record.losses = 2; sv.record.alphaWins = 1; sv.record.lifeGold = 900; sv.record.lifeExp = 400;
+    sv.record.grades = { S: 1, A: 2, B: 0, C: 0 };
+    const keptRecord = JSON.parse(JSON.stringify(sv.record));
+    const keptAchieved = JSON.parse(JSON.stringify(sv.achieved));
+    const keptKey = sv.dragonKey;
+
+    H.$('btnDenPrestige').click();
+    sv = H.save;   // pick up the fresh save object newGamePlus() installed
+
+    assert(sv.level === 1 && sv.exp === 0, `level/exp should reset to the start (got level ${sv.level}, exp ${sv.exp})`);
+    assert(sv.gold === 120, `gold should reset to the starting amount (got ${sv.gold})`);
+    assert(sv.stage === 1, `stage should reset to 1 (got ${sv.stage})`);
+    assert(Object.values(sv.gear).every(t => t === 0), `gear should reset to tier 0 (got ${JSON.stringify(sv.gear)})`);
+    assert(sv.skillPts === 0 && Object.keys(sv.skillUpg).length === 0, 'trained skill upgrades should reset');
+    assert(sv.amps.calm === 0 && sv.amps.surge === 0 && sv.amps.scope === 0, 'amplifier stock should reset');
+    assert(Object.keys(sv.stones.inv).length === 0 && sv.stones.sockets.every(s => s === null), 'stone inventory and sockets should reset');
+    assert(sv.dragonKey === keptKey, 'New Game+ should keep the same raised dragon, not force a reselect');
+    assert(sv.prestige === 1, `prestige count should increment on reset (got ${sv.prestige})`);
+    assert(JSON.stringify(sv.record) === JSON.stringify(keptRecord), 'the career record (wins/losses/alphas/best stage/hunt grades) must survive a reset');
+    assert(JSON.stringify(sv.achieved) === JSON.stringify(keptAchieved), 'achievements must survive a reset');
+
+    // a second reset requires clearing the milestone again (bestStage carried over, still >= req) and stacks
+    H.refreshDen();
+    assert(H.canPrestige() === true, 'best-stage-ever should carry over, so a second run can prestige again once it re-clears the milestone');
+    H.$('btnDenPrestige').click();
+    sv = H.save;
+    assert(sv.prestige === 2, `a second reset should stack the prestige count (got ${sv.prestige})`);
+
+    // -- the carry-over bonus is real, stacks, and only ever applies to the player's own campaign dragon --
+    H.B.modeType = 'campaign';
+    const base = H.statsAt(keptKey, 1);
+    const pMult = 1 + sv.prestige * H.PRESTIGE_STAT_PCT;
+    const dPost = new H.Dragon(keptKey, 1, false, 300);
+    assert(dPost.atk === Math.round(base.atk * pMult),
+      `a level-1 dragon should carry the stacked prestige bonus on atk (expected ${Math.round(base.atk * pMult)} at prestige ${sv.prestige}, got ${dPost.atk})`);
+    assert(dPost.def === Math.round(base.def * pMult) && dPost.agi === Math.round(base.agi * pMult) && dPost.luk === Math.round(base.luk * pMult),
+      'the prestige bonus should apply to def/agi/luk too, same multiplier as atk');
+    assert(dPost.atk > base.atk, 'the prestige bonus should measurably raise resolved atk over the plain base stat');
+
+    const dAI = new H.Dragon(keptKey, 1, true, 700);
+    assert(dAI.atk === Math.round(base.atk * 0.85), `an AI dragon must not receive the prestige bonus (expected the plain low-level AI handicap ${Math.round(base.atk * 0.85)}, got ${dAI.atk})`);
+
+    H.B.modeType = 'duel';
+    const dDuel = new H.Dragon(keptKey, 1, false, 300);
+    assert(dDuel.atk === base.atk, `duel mode must not receive the prestige bonus either (expected plain base ${base.atk}, got ${dDuel.atk})`);
+    H.B.modeType = 'campaign';
+
+    // -- persistence: the reset state and the prestige count both survive save/load --
+    H.persist();
+    sv.prestige = -1; sv.stage = 99; sv.record.wins = -1;
+    await H.loadSave();
+    sv = H.save;
+    assert(sv.prestige === 2, `prestige count should survive save/load (got ${sv.prestige})`);
+    assert(sv.stage === 1, `post-reset stage should survive save/load (got ${sv.stage})`);
+    assert(sv.record.wins === keptRecord.wins, `the kept career record should survive save/load (got ${sv.record.wins})`);
+
+    // -- bot-vs-bot turn integrity holds through a full post-reset campaign battle with the prestige bonus live --
+    sv.dragonKey = 'ember'; sv.level = 1; sv.exp = 0; sv.stage = 1;
+    H.startBattle(1);
+    const B = H.B;
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `post-reset battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
     clearTimers();
   });
 

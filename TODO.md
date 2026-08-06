@@ -1184,7 +1184,7 @@ inventing a system from scratch.*
     Plaguewing hazard shows "A lingering plague cloud spreads!" with a distinct olive-green
     zone ring rendered around the boss (screenshot), no console errors in either run.
 
-- [ ] **New Game+ — a ladder reset with a permanent carry-over.** The stage ladder currently
+- [x] **New Game+ — a ladder reset with a permanent carry-over.** The stage ladder currently
   only goes up; nothing gives a player who reaches the top (or just wants a fresh run) a
   reason to restart deliberately rather than just stopping.
   - *Intent:* a deliberate "start a new career" option that resets the grind (stage, level,
@@ -1197,10 +1197,50 @@ inventing a system from scratch.*
     threshold first, or is it always available?
   - *Extend:* `save` (new prestige-count field with a safe default), `wipeSave`/the save
     loader (a softer reset than a full wipe), the Den, `victory`/the stage ladder from Tier A.
+  - *Shipped:* a new `save.prestige` counter (safe-defaulted to 0 on old saves) plus
+    `canPrestige()`/`newGamePlus()`, mirroring `wipeSave`'s reset-the-whole-object pattern but
+    keeping `dragonKey`, `record` (wins/losses/alphas/best-stage/hunt grades — the "who this
+    dragon has been" the career-record item established) and `achieved`. Everything else —
+    level, exp, gold, gear tiers, trained skill points/upgrades, amp stock, and the stone
+    inventory/sockets — resets to the fresh-save defaults. Gated behind reaching stage
+    `PRESTIGE_STAGE_REQ=10` at least once (`save.record.bestStage`, which already existed and
+    already never resets) — the same milestone the `stage10` achievement uses, so it's a real
+    ladder threshold, not a made-up number, and it can't be spammed turn one. The carry-over
+    is a flat `+3%` (`PRESTIGE_STAT_PCT`) to ATK/DEF/AGI/LUK per reset, stacking with every
+    earlier one, applied in the `Dragon` constructor right after gear (`pMult=1+save.prestige*
+    PRESTIGE_STAT_PCT`) — gated to `!isAI&&B.modeType==='campaign'`, the same gating
+    `skillMult`/`stoneMult` already use, so AI dragons and duel mode are untouched. Entry point
+    is a new "New Game+" button in its own row under the Den's existing button row
+    (`btnDenPrestige`), disabled with an explanatory tooltip ("Reach stage 10...") until
+    unlocked, and a `confirm()` dialog before committing — same pattern as the existing
+    "Reset save" and "Switch dragons" confirmations. The Den's record row grows a "♻ N NG+"
+    tag once `save.prestige>0`, and the level line grows a "· NG+N" suffix. Kept the same
+    raised dragon rather than forcing a reselect — simplest reading of "start a new career"
+    that doesn't need to touch the title/dragon-select flow at all. Guessed the stage-10 gate
+    and the 3%/reset size — a future run could retune either once players actually chain
+    resets at higher stages, or add a second carry-over choice (e.g. a starting-gold bump)
+    alongside the flat stat bonus.
   - *Done when:* the player can deliberately reset their ladder run from the Den, the reset
     is visible (stage/level/gold back to the start), and the chosen carry-over is visible and
     measurably in effect on the new run; harness asserts what resets, what persists, and that
-    the bot-vs-bot sim stays green on a post-reset battle.
+    the bot-vs-bot sim stays green on a post-reset battle. **Verified**: harness test 28 checks
+    the button/`canPrestige()` stay locked below stage 10 and that a blocked `newGamePlus()`
+    call leaves the save object untouched, that they unlock at stage 10, drives the real
+    `btnDenPrestige` button (with gear/skills/amps/stones/record/achievements all pre-loaded)
+    and asserts gear/skillPts/skillUpg/amps/stones reset to defaults while `dragonKey`/`record`
+    /`achieved` survive byte-for-byte, that a second reset stacks `prestige` to 2, that a fresh
+    `Dragon` at prestige 2 resolves atk/def/agi/luk at exactly the stacked `+6%` over base while
+    an AI dragon and a duel-mode dragon both resolve to plain base stats, that the reset and
+    prestige count survive a real save/load round-trip, and drives a full bot-vs-bot campaign
+    battle on the post-reset save to completion with strict turn alternation. Also confirmed
+    live in Playwright/Chromium: a screenshot shows the Den's "New Game+" button grayed out
+    with a "Reach stage 10..." tooltip on a fresh save, then enabled once `save.record.bestStage`
+    reaches 10; clicking it (confirm auto-accepted) shows the Den immediately reading "LEVEL 1 ·
+    FIRE · NG+1", "Stage 1 · Verdant Vale", "120g", gear back to all T0, while "best stage 10",
+    the "1S 0A 0B 0C" hunt-grade tally, and "🏆 2/6" achievements stayed exactly as before the
+    reset, plus a new "♻ 1 NG+" tag; a real page reload (via the `window.storage` shim backed by
+    `localStorage`) confirmed `save.prestige` survives a genuine reload, not just an in-memory
+    save/load call.
 
 ---
 
