@@ -1242,6 +1242,85 @@ inventing a system from scratch.*
     `localStorage`) confirmed `save.prestige` survives a genuine reload, not just an in-memory
     save/load call.
 
+## Tier J — Fourth wave of polish (queue ran dry a fourth time)
+
+*Added 2026-08-07 — Tiers A–I are all shipped and the queue ran dry a fourth time. Same
+rules as always: read CLAUDE.md, topmost unchecked, one per run, treat every item as a
+direction not a spec. This wave opens with a low-risk documentation catch-up (found while
+scanning for stale seams before seeding new mechanics) and leaves two mechanical ideas
+queued behind it.*
+
+- [x] **Field Guide catch-up.** The in-game `#mHelp` FIELD GUIDE modal was last touched
+  around the gear-depth item (Tier B) — everything shipped since then (element affinity,
+  amplifiers 2 and 3, field loot, hunt grading, side hunts, magic stones, the 4th biome,
+  Nyx, boss hazards, biome weather, the 3rd skill tier, Ward, the 5th gear line,
+  achievements, trials, New Game+) was never added to it. A new player reading the one
+  reference the game offers gets a description of roughly a third of the actual game.
+  - *Intent:* the Field Guide actually describes the game as it exists today, so a player
+    who opens it isn't missing entire systems they can see on screen but can't explain.
+  - *Weigh:* this is text-only and touches no combat/turn code, so risk is close to zero —
+    the only judgment call is how much to compress vs. how much to cover. Chose coverage:
+    one short section per shipped system, reusing the existing `.sec` heading pattern
+    rather than inventing new structure, and leaned on `.helpBody`'s existing
+    `overflow-y:auto` scroll (already there) instead of trimming older sections to make
+    room.
+  - *Extend:* the `#mHelp` modal markup, the existing `.sec`/`.helpBody` CSS.
+  - *Shipped:* rewrote the `Wind, terrain & obstacles`, `Skills & MP`, `Gear & stats`, and
+    `Amplifiers` sections to mention crates, biome weather, the 3rd signature tier, Ward,
+    the 5th gear line, and Scope; added three new sections — `Elements` (the six-element
+    wheel plus Nyx sitting outside it), `Alpha bosses` (enrage + all six signature
+    hazards), and `Beyond the ladder` (hunt grading, Side Hunts, Trials, Achievements, New
+    Game+). No JS/combat code touched, no new `save` fields, no new UI chrome beyond text
+    in the existing modal.
+  - *Done when:* opening the Field Guide from the title screen shows coverage of every
+    shipped campaign system by name; harness asserts the modal's markup contains a
+    recognizable reference to each major system. **Verified**: harness test 29 reads the
+    raw `dragonfire-duel.html` source, extracts the `#mHelp` block, and asserts it mentions
+    every major shipped system by name/keyword (Ward, the 5th gear line, Scope, elements/
+    Nyx, alpha enrage/hazard names, hunt grading, Side Hunt, Trial, Achievements, New
+    Game+) — a regression here means a future feature shipped without a Field Guide update
+    getting caught immediately instead of drifting further. `node harness.mjs` is 29/29
+    green. Also confirmed live in Playwright/Chromium: opening the Field Guide from the
+    title screen's ❓ button shows the new sections in place, scrolling smoothly under the
+    existing `.helpBody` scroll container with no layout overflow at 1280px width, and no
+    console errors.
+
+- [ ] **A stronger single-dragon Ward signature.** Ward shipped as a shared instant that
+  plants the whole reflect-a-hit archetype at once (Tier F's own note flagged this as the
+  natural next step: "a future run could... extend the archetype to a second, stronger
+  single-dragon signature").
+  - *Intent:* one dragon gets a signature-tier version of the counter-attack idea — e.g. a
+    ward that also deals damage back, not just reduces what the attacker dealt — so the
+    archetype has a build-around payoff beyond the flat shared version.
+  - *Weigh:* which dragon (Dusk/Shadow reads thematically closest to a "counter" motif); does
+    it replace a `uniq` slot or is it a genuinely new mechanic; must still compose with the
+    existing shield-block math in `dealDamage`, not fork it, the same constraint Ward itself
+    was built under.
+  - *Extend:* `SKILLS`, `DRAGONS[key].uniq`, `dealDamage`'s Ward-reflect path, `WARD_REFLECT_PCT`.
+  - *Done when:* the new signature is selectable on its dragon, visibly more punishing than
+    plain Ward in battle, and doesn't fork the shield/ward damage math; harness asserts its
+    resolved reflect (or bonus effect) exceeds plain Ward's under matching conditions, and a
+    bot-vs-bot battle using it stays alternation-strict.
+
+- [ ] **A second-tier enrage for alphas.** The alpha-identity item's own note flagged this:
+  "a future run could... add a second-tier enrage if alphas still feel too similar to a
+  regular fight once the roster grows" — the roster has since grown from 6 to 7 dragons and
+  every alpha now has a signature hazard, but enrage itself is still a single flat +18% jump
+  at one HP threshold.
+  - *Intent:* a boss that's been fought down to critical HP feels like it's escalating a
+    second time, not just sitting at the same enraged state from 40% down to 0.
+  - *Weigh:* a second, lower HP threshold (e.g. 15%) that stacks a further attack/aim boost
+    on top of the existing enrage, reusing the same one-way-flip pattern `dealDamage` already
+    uses for the first threshold rather than a new state machine; keep it deterministic (no
+    new `Math.random()` draws) given the documented RNG-stream-shift risk several earlier
+    Tier E–I items hit.
+  - *Extend:* `dealDamage`'s enrage branch, `ENRAGE_HP_PCT`/`ENRAGE_ATK_MULT`, `aiThink`'s
+    enraged-AI behavior, the HUD's 😡 badge/telegraph.
+  - *Done when:* an alpha fought below the new second threshold is visibly and mechanically
+    more dangerous than a merely-enraged one, telegraphed the same way the first threshold
+    is; harness asserts the second tier fires at its threshold and stacks correctly, and a
+    bot-vs-bot alpha battle stays alternation-strict through both tiers.
+
 ---
 
 *Standing concern, not a task:* difficulty / EXP / gold curve tuning is evaluated
