@@ -2520,6 +2520,55 @@ const flush = () => new Promise((r) => setImmediate(r));
     clearTimers();
   });
 
+  // -- TEST 29: the in-game Field Guide describes every shipped campaign system --------
+  await test('Field Guide: the in-game #mHelp modal mentions every major shipped campaign system', () => {
+    const rawHtml = fs.readFileSync(HTML_PATH, 'utf8');
+    const m = rawHtml.match(/<div class="modal hidden" id="mHelp">[\s\S]*?id="btnHelpClose"/);
+    assert(m, 'could not find the #mHelp Field Guide block in dragonfire-duel.html');
+    const guide = m[0];
+
+    const mustMention = [
+      // Tier B — gear depth (baseline the guide already had, still expected)
+      [/\bLUK\b/, 'the LUK gear line'],
+      // Tier D — element affinity, amplifiers 2/3, field loot
+      [/Elements/, 'an Elements section'],
+      [/\bNyx\b/, 'Nyx (the 7th, off-wheel dragon)'],
+      [/Calm Wind/, 'the Calm Wind amplifier'],
+      [/Overcharge/, 'the Overcharge amplifier'],
+      [/Scope/, 'the Scope amplifier'],
+      [/crate/i, 'supply crates'],
+      // Tier D — hunt scoring, side hunts, magic stones
+      [/\bS\/A\/B\/C\b/, 'the hunt-grade tiers'],
+      [/Side Hunt/, 'Side Hunts'],
+      [/Magic stones|magic stone/i, 'magic stones'],
+      // Tier E/H/I — 4th biome, boss hazards (all six alphas)
+      [/chasm/i, 'the sundered-chasm biome'],
+      [/Cindermaw/, "Cindermaw's hazard"],
+      [/Glacierfang/, "Glacierfang's hazard"],
+      [/Quakehide/, "Quakehide's hazard"],
+      [/Stormcrown/, "Stormcrown's hazard"],
+      [/Nightgorge/, "Nightgorge's hazard"],
+      [/Plaguewing/, "Plaguewing's hazard"],
+      // Tier E — biome weather
+      [/ember rain/i, 'the cinder-biome ember-rain weather hook'],
+      [/double the wind|gust/i, 'the tundra-biome wind-gust weather hook'],
+      // Tier F — 3rd signature tier, Ward, 5th gear line
+      [/third at level 8|level 8/, 'the 3rd signature-skill tier gate'],
+      [/\bWard\b/, 'the Ward instant skill'],
+      [/Aegis Ward/, 'the Aegis Ward gear line'],
+      // Tier G — achievements, trials
+      [/Achievements/, 'Achievements'],
+      [/\bTrial\b/, 'Trials'],
+      [/No Healing/, "the Trial's No Healing modifier"],
+      [/Windstorm/, "the Trial's Windstorm modifier"],
+      [/Halved Stamina/, "the Trial's Halved Stamina modifier"],
+      // Tier I — New Game+
+      [/New Game\+/, 'New Game+'],
+    ];
+    const missing = mustMention.filter(([re]) => !re.test(guide)).map(([, label]) => label);
+    assert(missing.length === 0, `Field Guide is missing coverage of: ${missing.join(', ')}`);
+  });
+
   /* ---- report ---- */
   console.log('\nDragonfire Duel — test harness\n' + '-'.repeat(48));
   let failed = 0;
