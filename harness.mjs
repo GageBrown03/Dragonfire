@@ -209,6 +209,7 @@ function loadGame() {
       BOSS_HAZARDS, triggerBossHazard, WORLD,
       get obstacles(){ return obstacles; }, BIOME_WEATHER, triggerBiomeWeather,
       aiThink, buildSkillbar, UNIQ3_LEVEL, WARD_REFLECT_PCT,
+      SIG4_LEVEL, NIGHTWARD_REFLECT_PCT, NIGHTWARD_DRAIN_PCT,
       rollWind, forecastWindDisplay, WIND_MAX,
       ACHIEVEMENTS, checkAchievements, refreshAch, achRewardText,
       canPrestige, newGamePlus, PRESTIGE_STAGE_REQ, PRESTIGE_STAT_PCT
@@ -1722,7 +1723,8 @@ const flush = () => new Promise((r) => setImmediate(r));
       assert(H.SKILLS[D.uniq[2]], `${key}'s 3rd signature ("${D.uniq[2]}") should be defined in SKILLS`);
       assert(D.uniq[2] !== D.uniq[0] && D.uniq[2] !== D.uniq[1], `${key}'s 3rd signature should be a distinct skill from its first two`);
       const keys = H.SKILL_KEYS(key);
-      assert(keys.length === 9 && keys[8] === D.uniq[2], `SKILL_KEYS(${key}) should carry the 3rd signature as a 9th entry`);
+      const expectedLen = D.sig4 ? 10 : 9;
+      assert(keys.length === expectedLen && keys[8] === D.uniq[2], `SKILL_KEYS(${key}) should carry the 3rd signature as a 9th entry`);
     }
     assert(H.UNIQ3_LEVEL > 4, 'the 3rd tier should gate well past the level-4 2nd signature');
 
@@ -1831,7 +1833,8 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(H.SKILLS.ward && H.SKILLS.ward.type === 'instant', 'Ward should be defined as a shared instant skill');
     for (const key of Object.keys(H.DRAGONS)) {
       const keys = H.SKILL_KEYS(key);
-      assert(keys.length === 9 && keys[5] === 'ward', `SKILL_KEYS(${key}) should carry Ward as its 6th (shared) entry`);
+      const expectedLen = H.DRAGONS[key].sig4 ? 10 : 9;
+      assert(keys.length === expectedLen && keys[5] === 'ward', `SKILL_KEYS(${key}) should carry Ward as its 6th (shared) entry`);
     }
 
     // -- visible in the UI: the skill dock shows Ward unlocked from level 1, like Heal/Shield --
@@ -2564,9 +2567,169 @@ const flush = () => new Promise((r) => setImmediate(r));
       [/Halved Stamina/, "the Trial's Halved Stamina modifier"],
       // Tier I — New Game+
       [/New Game\+/, 'New Game+'],
+      // Tier J — Night Ward (Dusk's stronger single-dragon Ward signature)
+      [/Night Ward/, "Dusk's Night Ward signature"],
     ];
     const missing = mustMention.filter(([re]) => !re.test(guide)).map(([, label]) => label);
     assert(missing.length === 0, `Field Guide is missing coverage of: ${missing.join(', ')}`);
+  });
+
+  // -- TEST 30: Night Ward — Dusk's stronger single-dragon Ward signature ------------------
+  await test('a stronger single-dragon Ward signature (Night Ward): only Dusk has it, reflects more than plain Ward and drains life, trains on its own tier, the AI can select it, and the bot-vs-bot sim stays green', async () => {
+    clearTimers();
+    await H.wipeSave();
+
+    // -- config sanity: only Dusk carries a 4th signature; it's a real instant skill --------
+    assert(H.DRAGONS.dusk.sig4 === 'nightward', "Dusk should carry 'nightward' as its sig4 entry");
+    for (const key of Object.keys(H.DRAGONS)) {
+      if (key !== 'dusk') assert(!H.DRAGONS[key].sig4, `${key} should not have a sig4 signature — Night Ward is Dusk-only`);
+    }
+    assert(H.SKILLS.nightward && H.SKILLS.nightward.type === 'instant', 'Night Ward should be defined as an instant skill');
+    const duskKeys = H.SKILL_KEYS('dusk');
+    assert(duskKeys.length === 10 && duskKeys[9] === 'nightward', "SKILL_KEYS('dusk') should carry Night Ward as a 10th entry");
+    assert(H.SKILL_KEYS('ember').length === 9, "a dragon without sig4 should still resolve the plain 9-entry SKILL_KEYS");
+
+    // -- visible in the UI: locked below SIG4_LEVEL, unlocked and named at/above it ----------
+    const duskLow = new H.Dragon('dusk', H.SIG4_LEVEL - 1, false, 300);
+    H.buildSkillbar(duskLow);
+    let rows = H.$('skills').children;
+    assert(rows.length === 10, 'Dusk skill dock should show 10 slots');
+    assert(rows[9].dataset.lock === '1', `Night Ward should be locked below level ${H.SIG4_LEVEL}`);
+    const duskHigh = new H.Dragon('dusk', H.SIG4_LEVEL, false, 300);
+    H.buildSkillbar(duskHigh);
+    rows = H.$('skills').children;
+    assert(rows[9].dataset.lock === '0', `Night Ward should unlock at level ${H.SIG4_LEVEL}`);
+    assert(rows[9].innerHTML.includes('Night Ward'), 'the unlocked slot should show Night Ward\'s real name');
+
+    // -- casting it: raises the ward flag at the stronger tier, spends its own MP cost -------
+    H.B.modeType = 'campaign';
+    const caster = new H.Dragon('dusk', H.SIG4_LEVEL, false, 300);
+    caster.mp = caster.maxmp = 100;
+    H.B.state = 'anim';
+    H.castInstant(caster, 'nightward');
+    assert(caster.status.ward === 1, 'casting Night Ward should raise the shared ward status flag');
+    assert(caster.status.wardTier === 2, 'casting Night Ward should raise the ward flag at the stronger tier');
+    assert(caster.mp === 100 - H.SKILLS.nightward.cost, `casting Night Ward should spend its own MP cost (expected ${100 - H.SKILLS.nightward.cost}, got ${caster.mp})`);
+    clearTimers();
+
+    // -- reflect math: Night Ward reflects strictly more than plain Ward, and drains life back -
+    const realRandom = H.Math.random;
+    // control hit (no ward) establishes the raw damage a matching hit deals, so the reflect/
+    // drain formulas below can be checked exactly rather than just compared to each other.
+    // All three fights share the same attacker/defender species so the elemental-affinity
+    // multiplier is identical throughout — only the ward tier varies.
+    H.Math.random = () => 0.5;   // pin rand()/crit rolls so only the ward tier varies
+    const attCtl = new H.Dragon('ember', 5, true, 900), defCtl = new H.Dragon('frost', 5, false, 300);
+    attCtl.hp = attCtl.maxhp = 100000; defCtl.hp = defCtl.maxhp = 100000;
+    H.dealDamage(attCtl, defCtl, 200, 1, 'shot');
+    const dmgTaken = 100000 - defCtl.hp;
+    H.Math.random = realRandom;
+
+    H.Math.random = () => 0.5;
+    const attA = new H.Dragon('ember', 5, true, 900), defPlain = new H.Dragon('frost', 5, false, 300);
+    attA.hp = attA.maxhp = 100000; defPlain.hp = defPlain.maxhp = 100000;
+    defPlain.status.ward = 1; defPlain.status.wardTier = 1;
+    H.dealDamage(attA, defPlain, 200, 1, 'shot');
+    const plainReflect = 100000 - attA.hp;
+    H.Math.random = realRandom;
+    const expectedPlainReflect = Math.max(1, Math.round(dmgTaken * H.WARD_REFLECT_PCT));
+    assert(plainReflect === expectedPlainReflect, `plain Ward's reflect (${plainReflect}) should match ${H.WARD_REFLECT_PCT * 100}% of the taken hit (expected ${expectedPlainReflect})`);
+
+    H.Math.random = () => 0.5;
+    const attB = new H.Dragon('ember', 5, true, 900), defNight = new H.Dragon('frost', 5, false, 300);
+    attB.hp = attB.maxhp = 100000; defNight.hp = defNight.maxhp = 100000;
+    defNight.status.ward = 1; defNight.status.wardTier = 2;
+    H.dealDamage(attB, defNight, 200, 1, 'shot');
+    const nightReflect = 100000 - attB.hp;
+    H.Math.random = realRandom;
+    const expectedNightReflect = Math.max(1, Math.round(dmgTaken * H.NIGHTWARD_REFLECT_PCT));
+    assert(nightReflect === expectedNightReflect, `Night Ward's reflect (${nightReflect}) should match ${H.NIGHTWARD_REFLECT_PCT * 100}% of the taken hit (expected ${expectedNightReflect})`);
+
+    assert(defPlain.status.ward === 0 && defNight.status.ward === 0, 'both ward tiers should be single-use, consumed by the hit they reflect');
+    assert(nightReflect > plainReflect, `Night Ward's reflect (${nightReflect}) should exceed plain Ward's (${plainReflect}) under matching conditions`);
+
+    // -- life drain: the warder gets back a cut of what it reflected, but still takes the hit -
+    const expectedDrain = Math.round(nightReflect * H.NIGHTWARD_DRAIN_PCT);
+    const expectedFinalHp = 100000 - dmgTaken + expectedDrain;
+    assert(expectedDrain > 0, 'sanity: this hit size should produce a positive drain to assert against');
+    assert(defNight.hp === expectedFinalHp, `Night Ward should heal back exactly its drain share (expected hp ${expectedFinalHp}, got ${defNight.hp})`);
+    assert(defNight.hp < 100000, 'Night Ward should still let the incoming hit through, drain aside');
+
+    // -- trains on its own tier, independent of plain Ward's trained tier -------------------
+    // (same attacker/defender species as the reflect-math block above, so the elemental
+    // multiplier stays identical and only the trained tier varies)
+    H.save.skillUpg = { ward: 3, nightward: 0 };
+    H.Math.random = () => 0.5;
+    const attC = new H.Dragon('ember', 5, true, 900), defUntrainedNight = new H.Dragon('frost', 5, false, 300);
+    attC.hp = attC.maxhp = 100000; defUntrainedNight.hp = defUntrainedNight.maxhp = 100000;
+    defUntrainedNight.status.ward = 1; defUntrainedNight.status.wardTier = 2;
+    H.dealDamage(attC, defUntrainedNight, 200, 1, 'shot');
+    const untrainedNightReflect = 100000 - attC.hp;
+    H.Math.random = realRandom;
+    assert(Math.abs(untrainedNightReflect - nightReflect) <= 1, "training plain Ward's tier must not affect Night Ward's own resolved reflect");
+
+    H.save.skillUpg = { ward: 0, nightward: 3 };
+    H.Math.random = () => 0.5;
+    const attD = new H.Dragon('ember', 5, true, 900), defTrainedNight = new H.Dragon('frost', 5, false, 300);
+    attD.hp = attD.maxhp = 100000; defTrainedNight.hp = defTrainedNight.maxhp = 100000;
+    defTrainedNight.status.ward = 1; defTrainedNight.status.wardTier = 2;
+    H.dealDamage(attD, defTrainedNight, 200, 1, 'shot');
+    const trainedNightReflect = 100000 - attD.hp;
+    H.Math.random = realRandom;
+    assert(trainedNightReflect > untrainedNightReflect, `training Night Ward's own tier (${trainedNightReflect}) should raise its reflect over untrained (${untrainedNightReflect})`);
+
+    // -- the Den's Skills panel lists Night Ward as its own trainable row for Dusk ----------
+    H.save.dragonKey = 'dusk'; H.save.level = H.SIG4_LEVEL; H.save.skillPts = 3; H.save.skillUpg = {};
+    H.refreshSkills();
+    const skillRows = H.$('skillRows').children;
+    const nwRow = skillRows[H.SKILL_KEYS('dusk').indexOf('nightward')];
+    assert(nwRow.innerHTML.includes('Night Ward'), 'the Skills panel should list a Night Ward row for a leveled Dusk');
+    nwRow.children[0].click();
+    assert(H.save.skillUpg.nightward === 1, 'training Night Ward from the Den should raise its own tier');
+
+    // -- AI: a leveled Dusk favors Night Ward over plain Ward/Shield in its defensive branch -
+    clearTimers();
+    H.B.mode = 'battle'; H.B.state = 'anim';
+    const aiDusk = new H.Dragon('dusk', H.SIG4_LEVEL, true, 900);
+    aiDusk.mp = aiDusk.maxmp = 100; aiDusk.hp = Math.round(aiDusk.maxhp * 0.4);
+    H.B.e = aiDusk; H.B.p = new H.Dragon('ember', H.SIG4_LEVEL, false, 300); H.B.active = aiDusk;
+    H.Math.random = () => 0.05; // pass the 0.2-probability defensive-branch roll
+    H.aiThink();
+    H.Math.random = realRandom;
+    assert(aiDusk.status.ward === 1 && aiDusk.status.wardTier === 2, 'a leveled, high-MP AI Dusk should pick Night Ward over plain Ward/Shield when its defensive branch fires');
+    clearTimers();
+
+    // -- bot-vs-bot turn integrity holds with a level-appropriate Dusk in the fight ----------
+    clearTimers();
+    const sv = H.save;
+    sv.dragonKey = 'dusk'; sv.level = H.SIG4_LEVEL; sv.stage = 9; sv.exp = 0; sv.skillUpg = {};
+    H.startBattle(9);
+    const B = H.B;
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    // Dusk vs. Dusk at SIG4_LEVEL runs long: both dragons' HP has scaled well past the
+    // lower-level fixtures other tests use, and this test's own upfront RNG use shifts the
+    // shared seeded stream — the same documented risk the 3rd-signature-tier and biome-
+    // weather features hit, so this budget is generous rather than tight.
+    const BUDGET = 24000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `Night Ward battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    clearTimers();
   });
 
   /* ---- report ---- */
