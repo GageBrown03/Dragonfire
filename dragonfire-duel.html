@@ -434,7 +434,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
       <div class="sec">Wind, terrain & obstacles</div>
       The pennant shows the wind — it bends every shot and changes each turn. The whole battlefield is on screen by default; tap 🎯 (or press Z) for a close-up action camera that follows movement and shots. Blasts carve craters; dragons take fall damage. Stone spires block your path and <b>floating rocks block your shots</b> — arc over them or blast them apart. Wooden <b>supply crates</b> sometimes sit on the field — break one for an instant gold payout. Battles rage over meadow, cinder wastes (ember rain occasionally chips HP off obstacles and crates), frozen reaches (gusts periodically double the wind), or a sundered chasm that splits the field — arc your shots over the gap, or risk a fall.
       <div class="sec">Skills & MP</div>
-      Skills cost MP (+14 regained per turn). Every dragon shares Flame Shot, Twin Shot, Mega Blast, Heal, Shield, and 🪞 <b>Ward</b> (raises a ward that reflects a share of the next hit back at its attacker), plus <b>two signature skills</b> — the second unlocks at level 4 and a <b>third at level 8</b>: life-stealing boomerangs, freezing slabs, splitting meteors, sky bolts, bouncing stones, poison clouds, walls of ice, a shadow-step escape, and more. Spend level-up <b>skill points</b> in the Den's <b>Skills</b> panel to train any of them stronger.
+      Skills cost MP (+14 regained per turn). Every dragon shares Flame Shot, Twin Shot, Mega Blast, Heal, Shield, and 🪞 <b>Ward</b> (raises a ward that reflects a share of the next hit back at its attacker), plus <b>two signature skills</b> — the second unlocks at level 4 and a <b>third at level 8</b>: life-stealing boomerangs, freezing slabs, splitting meteors, sky bolts, bouncing stones, poison clouds, walls of ice, a shadow-step escape, and more. <b>Dusk</b> alone grows a 4th signature at level 10: 🖤 <b>Night Ward</b>, a deeper ward that reflects more of the hit and drains life from it. Spend level-up <b>skill points</b> in the Den's <b>Skills</b> panel to train any of them stronger.
       <div class="sec">Gear & stats</div>
       The shop sells five permanent gear lines: <b>ATK</b> raises damage · <b>DEF</b> lowers damage taken · <b>AGI</b> extends stamina · <b>LUK</b> raises crit chance · 🔰 <b>Aegis Ward</b> softens hits from a foe holding the elemental advantage. See it all at a glance in the Den's loadout row.
       <div class="sec">Amplifiers</div>
@@ -515,6 +515,9 @@ const SKILLS={
   wraithbite:{ic:'🩸', name:'Wraith Bite',   type:'attack', cost:50, base:76, radius:48, spd0:4.4, spdK:.21, gMul:.9, boomer:true, steal:.5, poison:3, desc:'Returning fang laced with rot — heals you and poisons the foe.'},
   vipercoil: {ic:'🐍', name:'Viper Coil',    type:'attack', cost:50, base:72, radius:52, spd0:4.2, spdK:.20, bounce:2, poison:4, desc:'Coils twice off the ground before biting deep.'},
   oblivionshard:{ic:'🕳', name:'Oblivion Shard', type:'attack', cost:50, base:78, radius:54, spd0:4.6, spdK:.22, windless:true, freeze:1, poison:3, desc:'A windless shard of unraveling dark — freezes and poisons on impact.'},
+  /* Dusk-only 4th signature (unlock at SIG4_LEVEL): a stronger single-dragon build on the
+     shared Ward archetype — reflects more of the hit and drains life from the reflected share. */
+  nightward:{ic:'🖤', name:'Night Ward', type:'instant', cost:35, wardTier:2, desc:'Raise a deeper ward — reflects more of the next hit and drains life from it. Ends turn.'},
   /* hidden sub-munitions */
   meteorSub:{hidden:true, type:'attack', base:42, radius:44, spd0:4.0, spdK:.20},
   chainSub: {hidden:true, type:'attack', base:60, radius:44, spd0:5.0, spdK:.23, windless:true},
@@ -535,7 +538,7 @@ const DRAGONS={
   terra:{name:'Terra', el:'Earth',   col:'#7bbf5a', col2:'#3c5e2a', belly:'#e7f3c9', uniq:['boulder','roller','quakecall'],
     base:{hp:640,atk:56,def:60,agi:22,luk:8},  grow:{hp:54,atk:5.5,def:5,  agi:1.5,luk:.8},
     blurb:'A walking hillside. Drops mountains, skips stones.'},
-  dusk: {name:'Dusk',  el:'Shadow',  col:'#9b5de5', col2:'#46297a', belly:'#e9dcff', uniq:['fang','blink','wraithbite'],
+  dusk: {name:'Dusk',  el:'Shadow',  col:'#9b5de5', col2:'#46297a', belly:'#e9dcff', uniq:['fang','blink','wraithbite'], sig4:'nightward',
     base:{hp:500,atk:70,def:38,agi:40,luk:18}, grow:{hp:40,atk:6.8,def:3.2,agi:2.6,luk:1.6},
     blurb:'A sliver of night. Steals life, then slips away.'},
   venom:{name:'Venom', el:'Toxin',   col:'#a8d93a', col2:'#4c641c', belly:'#f2ffd2', uniq:['toxin','miasma','vipercoil'],
@@ -576,13 +579,24 @@ function elRel(selfEl,oppEl){
 function elMult(selfEl,oppEl){ const r=elRel(selfEl,oppEl); return r==='adv'?ELEM_ADV:r==='res'?ELEM_RES:1; }
 // Battle amplifiers: one-shot tactical items that bend a single turn's shot without ending it.
 const AMP_SURGE_MULT=1.3;
-const SKILL_KEYS=k=>['shot','twin','mega','heal','shield','ward',DRAGONS[k].uniq[0],DRAGONS[k].uniq[1],DRAGONS[k].uniq[2]];
+const SKILL_KEYS=k=>{
+  const keys=['shot','twin','mega','heal','shield','ward',DRAGONS[k].uniq[0],DRAGONS[k].uniq[1],DRAGONS[k].uniq[2]];
+  if(DRAGONS[k].sig4)keys.push(DRAGONS[k].sig4);
+  return keys;
+};
 // Ward's reflect share: base fraction of the incoming hit sent back at the attacker,
 // scaled by the same skillMult(owner,'ward') tier curve attack skills already use.
 const WARD_REFLECT_PCT=0.35;
+// Night Ward (Dusk's stronger single-dragon signature): a bigger reflect share, plus a
+// life-drain cut of that reflected damage back to the warder. Trains via its own
+// skillMult(owner,'nightward') tier, same seam as every other SKILL_KEYS entry.
+const NIGHTWARD_REFLECT_PCT=0.6, NIGHTWARD_DRAIN_PCT=0.4;
 // The 3rd signature unlocks well past the 2nd (level 4) so a late-ladder dragon still has
 // something to grow into instead of flatlining on the same two signatures forever.
 const UNIQ3_LEVEL=8;
+// Dusk's 4th, single-dragon-only signature unlocks a further stretch past the 3rd so it
+// reads as a deliberate late-career payoff, not another skill bundled into the same gate.
+const SIG4_LEVEL=10;
 const statsAt=(key,lvl)=>{const D=DRAGONS[key],b=D.base,g=D.grow,n=lvl-1;return{
   hp:Math.round(b.hp+g.hp*n), atk:Math.round(b.atk+g.atk*n), def:Math.round(b.def+g.def*n),
   agi:Math.round(b.agi+g.agi*n), luk:Math.round(b.luk+g.luk*n), mp:100+lvl*4 };};
@@ -1112,7 +1126,7 @@ class Dragon{
     this.col=D.col; this.col2=D.col2; this.belly=D.belly;
     this.x=x; this.y=groundAt(x); this.vy=0; this.air=false; this.fallFrom=0;
     this.facing=1;
-    this.status={shield:0,burn:0,frozen:0,poison:0,ward:0}; this.moveLock=false;
+    this.status={shield:0,burn:0,frozen:0,poison:0,ward:0,wardTier:0}; this.moveLock=false;
     this.selSkill='shot'; this.lastShot=null; this.lastImpact=null;
     this.flap=rand(0,TAU); this.hurtT=0; this.castT=0; this.dead=false;
   }
@@ -1185,7 +1199,7 @@ class Dragon{
     ctx.restore();
     let icons='';
     if(this.status.shield>0)icons+='🛡';
-    if(this.status.ward>0)icons+='🪞';
+    if(this.status.ward>0)icons+=(this.status.wardTier>=2?'🖤':'🪞');
     if(this.status.burn>0)icons+='🔥';
     if(this.status.poison>0)icons+='☠';
     if(this.status.frozen>0||this.moveLock)icons+='❄';
@@ -1499,9 +1513,10 @@ function castInstant(d,key){
   }else if(key==='shield'){
     d.status.shield=1; floatTxt(d.x,d.y-84,'Shield!','#9cd0ff'); sfx.shield();
     burst(d.x,d.y-30,['#9cd0ff','#ffffff'],14,2.4,{grav:0});
-  }else if(key==='ward'){
-    d.status.ward=1; floatTxt(d.x,d.y-84,'Ward!','#ffb3f0'); sfx.shield();
-    burst(d.x,d.y-30,['#ffb3f0','#ffffff'],14,2.4,{grav:0});
+  }else if(key==='ward'||key==='nightward'){
+    d.status.ward=1; d.status.wardTier=sk.wardTier||1;
+    floatTxt(d.x,d.y-84,sk.name+'!',sk.wardTier?'#c9aaff':'#ffb3f0'); sfx.shield();
+    burst(d.x,d.y-30,sk.wardTier?['#c9aaff','#46297a','#ffffff']:['#ffb3f0','#ffffff'],14,2.4,{grav:0});
   }else if(key==='blink'){
     burst(d.x,d.y-26,['#9b5de5','#46297a','#ffffff'],16,3,{grav:0});
     const nx=clamp(d.x+d.facing*(SKILLS.blink.blink||240),40,WORLD.w-40);
@@ -1604,11 +1619,14 @@ function dealDamage(att,tgt,base,falloff,skillKey){
     const block=0.5-(!tgt.isAI&&B.modeType==='campaign'?(save.skillUpg.shield||0)*0.06:0);
     dmg*=Math.max(0.2,block); floatTxt(tgt.x,tgt.y-104,'Blocked!','#9cd0ff');
   }
-  let reflect=0;
+  let reflect=0, wardDrain=0;
   if(tgt!==att && tgt.status.ward>0){
-    tgt.status.ward=0;
-    reflect=Math.max(1,Math.round(dmg*WARD_REFLECT_PCT*skillMult(tgt,'ward')));
-    floatTxt(tgt.x,tgt.y-104,'Warded!','#ffb3f0');
+    const greater=tgt.status.wardTier>=2;
+    tgt.status.ward=0; tgt.status.wardTier=0;
+    const wardKey=greater?'nightward':'ward';
+    reflect=Math.max(1,Math.round(dmg*(greater?NIGHTWARD_REFLECT_PCT:WARD_REFLECT_PCT)*skillMult(tgt,wardKey)));
+    if(greater)wardDrain=Math.round(reflect*NIGHTWARD_DRAIN_PCT);
+    floatTxt(tgt.x,tgt.y-104,greater?'Night Warded!':'Warded!','#ffb3f0');
   }
   dmg=Math.max(1,Math.round(dmg));
   tgt.hp=Math.max(0,tgt.hp-dmg);
@@ -1616,6 +1634,10 @@ function dealDamage(att,tgt,base,falloff,skillKey){
   if(reflect>0){
     att.hp=Math.max(0,att.hp-reflect); att.hurtT=.3;
     floatTxt(att.x,att.y-86,'−'+reflect+' reflected','#ffb3f0'); sfx.crit();
+    if(wardDrain>0&&tgt.hp>0){
+      tgt.hp=Math.min(tgt.maxhp,tgt.hp+wardDrain);
+      floatTxt(tgt.x,tgt.y-124,'+'+wardDrain,'#c9aaff');
+    }
   }
   if(elRelation==='adv')floatTxt(tgt.x,tgt.y-104,'Effective!','#ffcf5c');
   else if(elRelation==='res')floatTxt(tgt.x,tgt.y-104,'Resisted','#8fa3c9');
@@ -1810,6 +1832,7 @@ function victory(){
   let lvTxt=ups?('LEVEL UP! Now level '+save.level+' — stats raised, +'+ups+' skill point'+(ups>1?'s':'')+' to spend in the Den.'):'';
   if(ups&&save.level>=4&&save.level-ups<4)lvTxt+=' Second signature skill unlocked!';
   if(ups&&save.level>=UNIQ3_LEVEL&&save.level-ups<UNIQ3_LEVEL)lvTxt+=' Third signature skill unlocked!';
+  if(ups&&DRAGONS[save.dragonKey]&&DRAGONS[save.dragonKey].sig4&&save.level>=SIG4_LEVEL&&save.level-ups<SIG4_LEVEL)lvTxt+=' Night Ward unlocked!';
   $('vLvl').textContent=lvTxt;
   $('vSub').textContent=trial?(B.e.name+' driven off — trial cleared, the ladder is unchanged.'):
     (side?(B.e.name+' driven off — side hunt complete, the ladder is unchanged.'):
@@ -1867,15 +1890,17 @@ function aiThink(){
   if(B.mode!=='battle'||B.state!=='anim'||B.active!==B.e)return;
   const me=B.e,foe=B.p;
   me.facing=foe.x>me.x?1:-1;
+  const D=DRAGONS[me.key];
   // Enraged alphas fight recklessly: no healing/shielding/warding, favor big attacks.
   if(!me.enraged){
     if(me.hp<me.maxhp*0.35 && me.mp>=SKILLS.heal.cost && !(B.trial&&B.trial.mod==='noheal') && Math.random()<0.65){castInstant(me,'heal');return;}
     if(me.hp<me.maxhp*0.5 && !me.status.shield && !me.status.ward && me.mp>=SKILLS.shield.cost && Math.random()<0.2){
-      castInstant(me, me.mp>=SKILLS.ward.cost?'ward':'shield'); return;
+      const wardKey=(D.sig4&&me.level>=SIG4_LEVEL&&me.mp>=SKILLS[D.sig4].cost)?D.sig4:(me.mp>=SKILLS.ward.cost?'ward':'shield');
+      castInstant(me, wardKey); return;
     }
   }
   let skKey='shot';
-  const D=DRAGONS[me.key], uniqs=[D.uniq[0]];
+  const uniqs=[D.uniq[0]];
   if(me.level>=4)uniqs.push(D.uniq[1]);
   if(me.level>=UNIQ3_LEVEL)uniqs.push(D.uniq[2]);
   const opts=[];
@@ -2039,7 +2064,7 @@ addEventListener('pointerdown',()=>ac(),{once:true});
 function buildSkillbar(d){
   const box=$('skills'); box.innerHTML='';
   SKILL_KEYS(d.key).forEach((key,i)=>{
-    const gate=i===7?4:(i===8?UNIQ3_LEVEL:0), levelLocked=d.level<gate;
+    const gate=i===7?4:(i===8?UNIQ3_LEVEL:(i===9?SIG4_LEVEL:0)), levelLocked=d.level<gate;
     const noHeal=key==='heal'&&B.trial&&B.trial.mod==='noheal';
     const locked=levelLocked||noHeal;
     const sk=SKILLS[key];
@@ -2153,7 +2178,7 @@ function refreshSkills(){
   const wrap=$('skillRows'); wrap.innerHTML='';
   for(const key of SKILL_KEYS(save.dragonKey)){
     const sk=SKILLS[key], tier=save.skillUpg[key]||0, maxed=tier>=3;
-    const effect=key==='shield'?'block':(key==='heal'?'healing':(key==='ward'?'reflect':'damage'));
+    const effect=key==='shield'?'block':(key==='heal'?'healing':((key==='ward'||key==='nightward')?'reflect':'damage'));
     const row=document.createElement('div'); row.className='shopRow';
     const desc=maxed?('Tier 3/3 — fully trained'):('Tier '+tier+'/3 → +10% '+effect);
     row.innerHTML='<div class="ic">'+sk.ic+'</div><div class="inf"><b>'+sk.name+'</b><span>'+desc+'</span></div>';
@@ -2343,7 +2368,7 @@ function meterRow(lbl,v,max){
 function buildCards(){
   const wrap=$('cards'); wrap.innerHTML='';
   for(const key of Object.keys(DRAGONS)){
-    const D=DRAGONS[key], st=statsAt(key,1), u1=SKILLS[D.uniq[0]], u2=SKILLS[D.uniq[1]], u3=SKILLS[D.uniq[2]];
+    const D=DRAGONS[key], st=statsAt(key,1), u1=SKILLS[D.uniq[0]], u2=SKILLS[D.uniq[1]], u3=SKILLS[D.uniq[2]], u4=D.sig4?SKILLS[D.sig4]:null;
     const locked=!isDragonUnlocked(key);
     const c=document.createElement('div'); c.className='card'+(locked?' locked':''); c.dataset.key=key;
     if(locked){
@@ -2354,7 +2379,7 @@ function buildCards(){
       c.innerHTML='<div class="orb" style="background:radial-gradient(circle at 32% 28%,'+D.belly+','+D.col+' 55%,'+D.col2+')"></div>'+
         '<h3>'+D.name+'</h3><div class="el">'+D.el+'</div>'+
         meterRow('HP',st.hp,700)+meterRow('ATK',st.atk,80)+meterRow('DEF',st.def,70)+meterRow('AGI',st.agi,50)+
-        '<div class="blurb">'+D.blurb+'<br><b style="color:var(--bone)">'+u1.ic+' '+u1.name+' · '+u2.ic+' '+u2.name+' · '+u3.ic+' '+u3.name+'</b></div>';
+        '<div class="blurb">'+D.blurb+'<br><b style="color:var(--bone)">'+u1.ic+' '+u1.name+' · '+u2.ic+' '+u2.name+' · '+u3.ic+' '+u3.name+(u4?' · '+u4.ic+' '+u4.name:'')+'</b></div>';
     }
     c.addEventListener('click',()=>cardClick(key));
     wrap.appendChild(c);
@@ -2654,7 +2679,7 @@ function setPlate(pre,d,suffix,opp){
   let s='';
   if(d.enraged)s+='😡 ';
   if(d.status.shield>0)s+='🛡 ';
-  if(d.status.ward>0)s+='🪞 ';
+  if(d.status.ward>0)s+=(d.status.wardTier>=2?'🖤':'🪞')+' ';
   if(d.status.burn>0)s+='🔥×'+d.status.burn+' ';
   if(d.status.poison>0)s+='☠×'+d.status.poison+' ';
   if(d.status.frozen>0||d.moveLock)s+='❄';

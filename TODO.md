@@ -1285,7 +1285,7 @@ queued behind it.*
     existing `.helpBody` scroll container with no layout overflow at 1280px width, and no
     console errors.
 
-- [ ] **A stronger single-dragon Ward signature.** Ward shipped as a shared instant that
+- [x] **A stronger single-dragon Ward signature.** Ward shipped as a shared instant that
   plants the whole reflect-a-hit archetype at once (Tier F's own note flagged this as the
   natural next step: "a future run could... extend the archetype to a second, stronger
   single-dragon signature").
@@ -1297,10 +1297,53 @@ queued behind it.*
     existing shield-block math in `dealDamage`, not fork it, the same constraint Ward itself
     was built under.
   - *Extend:* `SKILLS`, `DRAGONS[key].uniq`, `dealDamage`'s Ward-reflect path, `WARD_REFLECT_PCT`.
+  - *Shipped:* went with Dusk (Shadow) per the Weigh note, and with a genuinely new mechanic
+    rather than replacing an existing `uniq` slot — Dusk keeps all three signatures
+    (fang/blink/wraithbite) and grows a Dusk-only 4th slot, `DRAGONS.dusk.sig4='nightward'`.
+    `SKILL_KEYS(k)` now conditionally appends a dragon's `sig4` if it has one, so every other
+    dragon's 9-entry skillbar is untouched and only Dusk's grows to 10 — `buildSkillbar`'s
+    existing index-gate ternary just grew one more branch (`i===9?SIG4_LEVEL`), no restructuring
+    needed. Gated behind a new `SIG4_LEVEL=10`, past the 3rd-signature gate (`UNIQ3_LEVEL=8`) so
+    it reads as a further, deliberate late-career milestone rather than another skill bundled
+    into the same unlock. **Night Ward** (`SKILLS.nightward`, 35 MP, 🖤) reuses the exact
+    `status.ward`/`dealDamage` reflect branch plain Ward already has — no forked damage path —
+    by adding a `status.wardTier` (1 for plain Ward, 2 for Night Ward, set in `castInstant`) that
+    the existing reflect branch reads to pick `NIGHTWARD_REFLECT_PCT` (0.6, vs plain Ward's 0.35)
+    over `WARD_REFLECT_PCT`, then layers the "not just reduces, deals damage back" ask from the
+    Intent as a life-drain: `NIGHTWARD_DRAIN_PCT` (0.4) of the reflected share heals the warder
+    back, composed in the same `if(reflect>0)` block right after the attacker takes the
+    reflected damage. Trains on its own tier (`skillMult(tgt,'nightward')`), independent of
+    plain Ward's trained tier, since `SKILL_KEYS` already being the seam the Den's Skills panel
+    iterates over meant it became trainable there for free once added, same as every earlier
+    skill-tier feature. The AI can select it: `aiThink`'s existing shield-or-ward defensive
+    branch now checks `D.sig4` first (only meaningful for a leveled-enough AI Dusk with enough
+    MP), falling back to plain Ward/Shield exactly as before for every other dragon — no new
+    `Math.random()` call, so it doesn't touch the shared seeded stream's draw count. Also
+    surfaced in the title screen's dragon-card blurb (Dusk's card now lists all four signatures)
+    and the Field Guide's Skills & MP section. Guessed the level-10 gate, the 60%/40%
+    reflect/drain split, and the 35 MP cost (10 above plain Ward's) — a future run could retune
+    any of these once it's played at that level.
   - *Done when:* the new signature is selectable on its dragon, visibly more punishing than
     plain Ward in battle, and doesn't fork the shield/ward damage math; harness asserts its
     resolved reflect (or bonus effect) exceeds plain Ward's under matching conditions, and a
-    bot-vs-bot battle using it stays alternation-strict.
+    bot-vs-bot battle using it stays alternation-strict. **Verified**: harness test 30 confirms
+    only Dusk carries a `sig4` (every other dragon's `SKILL_KEYS` stays a plain 9 entries), that
+    a leveled Dusk's skill dock locks Night Ward below `SIG4_LEVEL` and unlocks/names it at or
+    above; that casting it raises the ward flag at tier 2 and spends its own MP cost; that its
+    resolved reflect exactly matches `NIGHTWARD_REFLECT_PCT` of a matching hit (vs plain Ward's
+    `WARD_REFLECT_PCT` on the identical hit, elemental matchup held constant) and strictly
+    exceeds it; that the life-drain heals back exactly the advertised share; that training
+    Night Ward's own tier raises its reflect independently of plain Ward's trained tier; that
+    the Den's Skills panel lists and trains it; that a leveled, low-HP, high-MP AI Dusk actually
+    picks Night Ward over plain Ward/Shield in a direct `aiThink()` call; and drives a full
+    bot-vs-bot campaign battle with a level-`SIG4_LEVEL` Dusk to completion with strict turn
+    alternation (given a generous frame budget — a mirrored high-level Dusk-vs-Dusk matchup this
+    test's own RNG draws happened to produce ran long, the same documented stream-shift/
+    higher-HP risk earlier Tier F/H items hit). Also confirmed live in Playwright/Chromium: the
+    Den's Skills panel shows a 10th "Night Ward · Tier 0/3 → +10% reflect" row, a level-10 Dusk's
+    in-battle skill dock shows "Night Ward 35 MP" as a real usable button, and casting it live
+    shows the "Night Ward!" float with a distinct purple/black burst and MP dropping 140→105
+    (screenshots taken), no console errors.
 
 - [ ] **A second-tier enrage for alphas.** The alpha-identity item's own note flagged this:
   "a future run could... add a second-tier enrage if alphas still feel too similar to a
