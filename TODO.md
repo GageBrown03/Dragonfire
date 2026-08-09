@@ -1345,7 +1345,7 @@ queued behind it.*
     shows the "Night Ward!" float with a distinct purple/black burst and MP dropping 140→105
     (screenshots taken), no console errors.
 
-- [ ] **A second-tier enrage for alphas.** The alpha-identity item's own note flagged this:
+- [x] **A second-tier enrage for alphas.** The alpha-identity item's own note flagged this:
   "a future run could... add a second-tier enrage if alphas still feel too similar to a
   regular fight once the roster grows" — the roster has since grown from 6 to 7 dragons and
   every alpha now has a signature hazard, but enrage itself is still a single flat +18% jump
@@ -1359,10 +1359,50 @@ queued behind it.*
     Tier E–I items hit.
   - *Extend:* `dealDamage`'s enrage branch, `ENRAGE_HP_PCT`/`ENRAGE_ATK_MULT`, `aiThink`'s
     enraged-AI behavior, the HUD's 😡 badge/telegraph.
+  - *Shipped:* a new `ENRAGE2_HP_PCT=0.15`/`ENRAGE2_ATK_MULT_EXTRA=1.12` pair and a `enraged2`
+    flag on `Dragon`, following the Weigh note's exact shape — a second one-way flip added
+    directly below the existing first-tier check in `dealDamage`'s enrage branch (`tgt.alpha
+    && tgt.enraged && !tgt.enraged2 && tgt.hp<=maxhp*ENRAGE2_HP_PCT`), so it only ever fires
+    once the boss is already at tier 1, and a single oversized hit that crosses both
+    thresholds in the same call flips both flags together rather than needing two separate
+    hits — still one flip point, no second state machine. `effectiveAtk` now stacks
+    `ENRAGE2_ATK_MULT_EXTRA` on top of `ENRAGE_ATK_MULT` (multiplicative, ~+32% total over
+    base at tier 2) rather than replacing it. No new `Math.random()` draws anywhere in the
+    trigger path, per the deterministic constraint the Weigh note called out. On the AI side,
+    `aiThink`'s attack-frequency roll goes from 55%/85% (calm/enraged) to 95% at `enraged2`,
+    and `aiBeginAim`'s aim-scatter dampener (`enrageK`) tightens further from 0.7 to 0.45, so
+    a doubly-enraged boss both attacks more often and aims measurably more accurately — no
+    extra entropy added to the AI's existing decision rolls, just a third branch on the same
+    `me.enraged`/`me.enraged2` checks. Telegraphed the same three ways the first tier already
+    is: an `announce()` toast ("NAME is fighting on pure fury now!"), a red "NAME ENRAGES
+    FURTHER!" float (distinct from the first tier's "NAME ENRAGES!"), and a bigger
+    `burst()`/screen-shake. The HUD badge escalates rather than stacking redundantly — 💢
+    replaces 😡 once `enraged2` is true (tier 2 always implies tier 1), instead of showing
+    both icons side by side. Guessed the 15% threshold and the +12%-on-top multiplier size,
+    and that it should apply to all six original `ALPHA_TITLES` plus Nyx/Voidmaw uniformly
+    rather than being boss-specific — a future run could retune either number, or make the
+    second tier trigger a boss-specific escalation (e.g. re-firing `triggerBossHazard` a
+    second time) once it's played at that depth.
   - *Done when:* an alpha fought below the new second threshold is visibly and mechanically
     more dangerous than a merely-enraged one, telegraphed the same way the first threshold
     is; harness asserts the second tier fires at its threshold and stacks correctly, and a
-    bot-vs-bot alpha battle stays alternation-strict through both tiers.
+    bot-vs-bot alpha battle stays alternation-strict through both tiers. **Verified**: harness
+    test 31 checks the second threshold sits strictly below the first, that `effectiveAtk`
+    stacks `ENRAGE2_ATK_MULT_EXTRA` multiplicatively on top of `ENRAGE_ATK_MULT` (calm <
+    tier1 < tier2, exact expected values), that the second tier only flips once a boss is
+    already at tier 1 and past the deeper threshold (a calibrated, rand()-pinned hit crosses
+    it without killing the boss), that a single oversized hit crossing both thresholds at once
+    flips both flags together, that a tier-2-enraged boss deals strictly more resolved damage
+    than an identical tier-1-only boss, and drives a full bot-vs-bot campaign battle against a
+    forced alpha to completion with strict turn alternation while asserting the boss actually
+    reached *both* enrage tiers live (nudging its HP down to just above the second threshold
+    the instant it first enrages, so the next real hit reliably crosses the deeper line without
+    hand-scripting individual shot damage). Also confirmed live in Playwright/Chromium: driving
+    a forced Cindermaw down through both thresholds via real `dealDamage` calls shows the HUD
+    status badge flip from nothing to 💢, the toast "Cindermaw is fighting on pure fury now!",
+    and a red "CINDERMAW ENRAGES FURTHER!" float layered under the original tier-1 "CINDERMAW
+    ENRAGES!" text and Cindermaw's own scorch-hazard telegraph (screenshot taken), with no
+    console errors.
 
 ---
 

@@ -444,7 +444,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
       <div class="sec">Elements</div>
       Every dragon carries an element — Fire, Ice, Thunder, Earth, Shadow, or Toxin — set on a wheel where each is strong against one and weak against another (a ▲/▼ badge on the HUD plate, an "Effective!"/"Resisted" float on hit). <b>Nyx</b>, a 7th dragon earned by felling 3 alpha bosses, carries the Void element and sits outside the wheel entirely — neutral against every matchup.
       <div class="sec">Alpha bosses</div>
-      Every 5th stage is an <b>alpha</b> — a named boss with a tougher fight. Past 40% HP it <b>enrages</b>, hitting harder and fighting more aggressively, and triggers its own signature hazard: Cindermaw scorches the ground, Glacierfang raises an ice wall, Quakehide cracks open a crater, Stormcrown's bolt strikes a second point, Nightgorge blinks behind you, Plaguewing's cloud lingers. Felling one always pays a bonus skill point.
+      Every 5th stage is an <b>alpha</b> — a named boss with a tougher fight. Past 40% HP it <b>enrages</b>, hitting harder and fighting more aggressively, and triggers its own signature hazard: Cindermaw scorches the ground, Glacierfang raises an ice wall, Quakehide cracks open a crater, Stormcrown's bolt strikes a second point, Nightgorge blinks behind you, Plaguewing's cloud lingers. Fought down past 15% HP it enrages a second time (💢), hitting and aiming even more dangerously. Felling one always pays a bonus skill point.
       <div class="sec">Beyond the ladder</div>
       Every win is graded <b>S/A/B/C</b> by how fast and clean the hunt was, for an EXP/gold bonus. From the Den you can also launch a <b>Side Hunt</b> (an off-ladder practice fight for reduced rewards) or a <b>Trial</b> (an off-ladder fight with a constraint — No Healing, Windstorm, or Halved Stamina — that pays better than a Side Hunt). Milestones quietly pay out as <b>Achievements</b>, tracked in their own Den panel. Once you've reached stage 10, <b>New Game+</b> resets your ladder run for a small permanent stat bonus, keeping your career record intact.
     </div>
@@ -564,6 +564,11 @@ function unlockHint(key){
 // and enrage once below ENRAGE_HP_PCT — see Dragon.enraged / dealDamage / aiThink.
 const ALPHA_TITLES={ember:'Cindermaw',frost:'Glacierfang',volt:'Stormcrown',terra:'Quakehide',dusk:'Nightgorge',venom:'Plaguewing',nyx:'Voidmaw'};
 const ENRAGE_HP_PCT=0.4, ENRAGE_ATK_MULT=1.18;
+// Second-tier enrage: a further, deeper flip once a boss is fought down past a much lower
+// threshold. Stacks on top of the first tier (same one-way-flip pattern) rather than replacing
+// it, and stays deterministic — no extra Math.random() draws, so it doesn't shift the harness's
+// shared seeded RNG stream.
+const ENRAGE2_HP_PCT=0.15, ENRAGE2_ATK_MULT_EXTRA=1.12;
 // Element wheel: each element is strong vs the next entry and weak vs the previous one
 // (cyclic, so every element has exactly one favorable and one unfavorable matchup).
 const ELEMENT_ORDER=['Fire','Toxin','Thunder','Ice','Earth','Shadow'];
@@ -1121,7 +1126,7 @@ class Dragon{
       this.agi=Math.round(this.agi*pMult); this.luk=Math.round(this.luk*pMult);
     }
     this.maxstam=90+this.agi; this.stamina=this.maxstam;
-    this.enraged=false;
+    this.enraged=false; this.enraged2=false;
     this.name=alpha?(ALPHA_TITLES[key]||('Alpha '+D.name)):((isAI?'Wild ':'')+D.name);
     this.col=D.col; this.col2=D.col2; this.belly=D.belly;
     this.x=x; this.y=groundAt(x); this.vy=0; this.air=false; this.fallFrom=0;
@@ -1602,7 +1607,10 @@ function skillMult(owner,key){
   return 1+(save.skillUpg[key]||0)*0.10;
 }
 function ampMult(flag){ return flag?AMP_SURGE_MULT:1; }
-function effectiveAtk(d){ return Math.round(d.atk*(d.enraged?ENRAGE_ATK_MULT:1)*stoneMult(d)); }
+function effectiveAtk(d){
+  const enrageMult=(d.enraged?ENRAGE_ATK_MULT:1)*(d.enraged2?ENRAGE2_ATK_MULT_EXTRA:1);
+  return Math.round(d.atk*enrageMult*stoneMult(d));
+}
 // Elemental ward gear softens specifically the case where the attacker holds the elemental
 // advantage against the wearer — a defensive answer to affinity, distinct from a flat DEF stat.
 function elemWardMult(tgt){ return 1-Math.min(1,(tgt.elemWard||0)/100); }
@@ -1650,6 +1658,13 @@ function dealDamage(att,tgt,base,falloff,skillKey){
     burst(tgt.x,tgt.y-30,['#ff4d4d','#ff8a3d','#ffffff'],20,3.6,{up:1.8,size:5});
     cam.shake=Math.min(16,cam.shake+8);
     triggerBossHazard(tgt);
+  }
+  if(tgt.alpha&&tgt.enraged&&!tgt.enraged2&&tgt.hp>0&&tgt.hp<=tgt.maxhp*ENRAGE2_HP_PCT){
+    tgt.enraged2=true;
+    floatTxt(tgt.x,tgt.y-160,tgt.name.toUpperCase()+' ENRAGES FURTHER!','#ff0000',true);
+    announce(tgt.name+' is fighting on pure fury now!');
+    burst(tgt.x,tgt.y-30,['#ff0000','#ff4d4d','#ffffff'],28,4.2,{up:2.0,size:6});
+    cam.shake=Math.min(16,cam.shake+12);
   }
   if(tgt!==att && falloff>0 && skillKey){
     const sk=SKILLS[skillKey];
@@ -1907,7 +1922,7 @@ function aiThink(){
   for(const u of uniqs){const s=SKILLS[u]; if(s.type==='attack'&&s.aiOk!==false&&me.mp>=s.cost)opts.push(u);}
   if(me.mp>=SKILLS.mega.cost)opts.push('mega');
   if(me.mp>=SKILLS.twin.cost)opts.push('twin');
-  if(opts.length&&Math.random()<(me.enraged?0.85:0.55))skKey=opts[randi(0,opts.length-1)];
+  if(opts.length&&Math.random()<(me.enraged2?0.95:(me.enraged?0.85:0.55)))skKey=opts[randi(0,opts.length-1)];
   const sk=SKILLS[skKey];
   let sol=aiSolve(me,foe,sk,false);
   if(sol.err>150 && !me.moveLock && me.stamina>0){
@@ -1929,7 +1944,7 @@ function aiBeginAim(skKey,sol){
     const alt=aiSolve(me,B.p,SKILLS.shot,false);
     if(alt.err<sol.err-60){skKey='shot'; sol=alt;}
   }
-  const enrageK=me.enraged?0.7:1;
+  const enrageK=me.enraged2?0.45:(me.enraged?0.7:1);
   const sa=Math.max(1.2,7-B.stage*0.6)*enrageK, sp=Math.max(1.6,8-B.stage*0.7)*enrageK;
   const ang=clamp(sol.ang+gauss(sa),6,86), pow=clamp(sol.pow+gauss(sp),16,100);
   B.aiPlan={phase:'aim',t:0,ang,pow,skKey,startAng:45};
@@ -2677,7 +2692,7 @@ function setPlate(pre,d,suffix,opp){
   $(pre+'Mp').style.width=clamp(d.mp/d.maxmp*100,0,100)+'%';
   $(pre+'MpT').textContent=d.mp+' MP';
   let s='';
-  if(d.enraged)s+='😡 ';
+  if(d.enraged2)s+='💢 '; else if(d.enraged)s+='😡 ';
   if(d.status.shield>0)s+='🛡 ';
   if(d.status.ward>0)s+=(d.status.wardTier>=2?'🖤':'🪞')+' ';
   if(d.status.burn>0)s+='🔥×'+d.status.burn+' ';
