@@ -199,6 +199,7 @@ function loadGame() {
       get curBiomeKey(){ return curBiomeKey; }, get ground(){ return ground; }, FLOOR, SPAWN_P, SPAWN_E,
       castInstant, skillMult, refreshSkills, SKILL_KEYS, refreshShop,
       dealDamage, effectiveAtk, ALPHA_TITLES, ENRAGE_HP_PCT, ENRAGE_ATK_MULT, Math,
+      ENRAGE2_HP_PCT, ENRAGE2_ATK_MULT_EXTRA,
       elRel, elMult, ELEMENT_ORDER, ampMult, AMP_SURGE_MULT,
       get crates(){ return crates; }, makeCrates, damageCrate, CRATE_CHANCE, explode,
       huntGrade, HUNT_GRADES, SIDE_HUNT_MULT, $,
@@ -2729,6 +2730,127 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(B.state === 'over', `Night Ward battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
     assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
+    clearTimers();
+  });
+
+  // -- TEST 31: second-tier enrage — a further flip past a deeper HP threshold ----
+  await test('a second-tier enrage: fires past a deeper HP threshold, stacks a further atk/aim boost on top of the first tier, and the bot-vs-bot sim stays green through both tiers', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+    const realRandom = H.Math.random;
+
+    // -- sanity: the second threshold sits strictly below the first ------------
+    assert(H.ENRAGE2_HP_PCT < H.ENRAGE_HP_PCT, `the second-tier threshold (${H.ENRAGE2_HP_PCT}) should be deeper than the first (${H.ENRAGE_HP_PCT})`);
+
+    // -- effectiveAtk stacks a further multiplier on top of the first tier -----
+    const calmAtk = H.effectiveAtk({ atk: 100, enraged: false, enraged2: false });
+    const tier1Atk = H.effectiveAtk({ atk: 100, enraged: true, enraged2: false });
+    const tier2Atk = H.effectiveAtk({ atk: 100, enraged: true, enraged2: true });
+    assert(tier1Atk === Math.round(100 * H.ENRAGE_ATK_MULT), `tier-1 effective atk should match ENRAGE_ATK_MULT alone (got ${tier1Atk})`);
+    assert(tier2Atk === Math.round(100 * H.ENRAGE_ATK_MULT * H.ENRAGE2_ATK_MULT_EXTRA), `tier-2 effective atk should stack ENRAGE2_ATK_MULT_EXTRA on top of ENRAGE_ATK_MULT (got ${tier2Atk})`);
+    assert(tier2Atk > tier1Atk && tier1Atk > calmAtk, `each enrage tier should strictly raise effective atk (calm ${calmAtk}, tier1 ${tier1Atk}, tier2 ${tier2Atk})`);
+
+    // -- the second tier only flips once the boss is already enraged and past the deeper line --
+    H.B.modeType = 'campaign';
+    sv.dragonKey = 'frost'; sv.gear = { fang: 0, scale: 0, charm: 0, talon: 0 };
+    const attacker = new H.Dragon('frost', 5, false, 300);
+    const boss = new H.Dragon('ember', 5, true, 900, true);
+    boss.hp = Math.round(boss.maxhp * 0.44); // above the first threshold
+    assert(boss.enraged === false && boss.enraged2 === false, 'a fresh alpha should start at neither enrage tier');
+    H.dealDamage(attacker, boss, 30, 1, 'shot'); // small hit: crosses tier 1 only
+    assert(boss.enraged === true, 'boss should have crossed the first enrage threshold');
+    assert(boss.enraged2 === false, `boss should not yet be at the second tier (hp ${boss.hp}/${boss.maxhp}, threshold ${H.ENRAGE2_HP_PCT * 100}%)`);
+
+    // Calibrate a same-species/level/alpha dummy (identical def + elemental matchup vs the
+    // attacker) with rand()/crit pinned so the exact damage of a fixed-base hit is known, then
+    // place the boss precisely half a hit above the second threshold so the same pinned hit
+    // reliably crosses it without overkilling to 0.
+    H.Math.random = () => 0.5;
+    const calibDummy = new H.Dragon('ember', 5, true, 900, true); calibDummy.hp = calibDummy.maxhp = 100000;
+    H.dealDamage(attacker, calibDummy, 80, 1, 'shot');
+    const dmgMeasured = 100000 - calibDummy.hp;
+    H.Math.random = realRandom;
+    assert(dmgMeasured > 0, 'sanity: the calibration hit should deal positive damage');
+
+    const threshold2 = Math.round(boss.maxhp * H.ENRAGE2_HP_PCT);
+    boss.hp = Math.round(threshold2 / 2) + dmgMeasured;
+    assert(boss.hp > threshold2, 'sanity: this hit should leave the boss above the second threshold');
+    H.Math.random = () => 0.5;
+    H.dealDamage(attacker, boss, 80, 1, 'shot'); // same pinned hit as the calibration, so it deals exactly dmgMeasured
+    H.Math.random = realRandom;
+    assert(boss.enraged2 === true, `boss should enrage further once HP drops below ${H.ENRAGE2_HP_PCT * 100}% (hp now ${boss.hp}/${boss.maxhp})`);
+    assert(boss.hp > 0, 'the hit that triggers the second tier should not itself be lethal in this scenario');
+
+    // -- a single oversized hit can cross both thresholds in the same call (still one-way-flip, no second state machine) --
+    const bigAttacker = new H.Dragon('terra', 8, false, 300);
+    const bothBoss = new H.Dragon('ember', 5, true, 900, true);
+    bothBoss.hp = Math.round(bothBoss.maxhp * 0.44);
+    const bothThreshold2 = Math.round(bothBoss.maxhp * H.ENRAGE2_HP_PCT);
+    const desiredAfter = Math.round(bothThreshold2 / 2); // comfortably below the 2nd threshold, still alive
+    const dmgNeeded = bothBoss.hp - desiredAfter;
+    // Calibrate this attacker/target pairing's damage-per-base-point (rand()/crit pinned so the
+    // rate is exact), then solve for the base that deals ~dmgNeeded in one hit.
+    H.Math.random = () => 0.5;
+    const rateDummy = new H.Dragon('ember', 5, true, 900, true); rateDummy.hp = rateDummy.maxhp = 100000;
+    H.dealDamage(bigAttacker, rateDummy, 100, 1, 'mega');
+    const dmgPerBase = (100000 - rateDummy.hp) / 100;
+    const solvedBase = Math.max(1, Math.round(dmgNeeded / dmgPerBase));
+    H.dealDamage(bigAttacker, bothBoss, solvedBase, 1, 'mega');
+    H.Math.random = realRandom;
+    assert(bothBoss.enraged === true && bothBoss.enraged2 === true, `a single hit that crosses both thresholds at once should flip both flags together (hp now ${bothBoss.hp}/${bothBoss.maxhp}, threshold2 ${bothThreshold2})`);
+    assert(bothBoss.hp > 0, 'the single hit that crosses both thresholds should not itself be lethal in this scenario');
+
+    // -- a tier-2 boss deals more damage than an identical tier-1 boss ----------
+    H.Math.random = () => 0.5; // pin rand()/crit rolls so only the enrage tier varies
+    const tier1Clone = new H.Dragon('ember', 5, true, 900, true); tier1Clone.enraged = true;
+    const tier2Clone = new H.Dragon('ember', 5, true, 900, true); tier2Clone.enraged = true; tier2Clone.enraged2 = true;
+    const dummyA = new H.Dragon('frost', 5, false, 300), dummyB = new H.Dragon('frost', 5, false, 300);
+    dummyA.hp = dummyA.maxhp = 100000; dummyB.hp = dummyB.maxhp = 100000;
+    H.dealDamage(tier1Clone, dummyA, 200, 1, null);
+    H.dealDamage(tier2Clone, dummyB, 200, 1, null);
+    H.Math.random = realRandom;
+    const tier1Dmg = 100000 - dummyA.hp, tier2Dmg = 100000 - dummyB.hp;
+    assert(tier2Dmg > tier1Dmg, `a second-tier-enraged boss should deal more damage than a merely first-tier-enraged one (tier1 ${tier1Dmg}, tier2 ${tier2Dmg})`);
+
+    // -- bot-vs-bot turn integrity holds through both enrage tiers --------------
+    clearTimers();
+    sv.dragonKey = 'terra'; sv.level = 4; sv.stage = 5; sv.exp = 0;
+    H.startBattle(5);
+    let B = H.B;
+    assert(B.e.alpha, 'stage 5 should be an alpha battle');
+    B.e = new H.Dragon('ember', B.e.level, true, H.SPAWN_E, true); // force a known alpha for a deterministic fight
+    B.e.facing = -1;
+    let lastTurn = 0, prevSide = null, turnsSeen = 0, sawTier1 = false, sawTier2 = false;
+    const problems = [];
+    const BUDGET = 12000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.e.enraged && !sawTier1) sawTier1 = true;
+      // Force the boss down near (but above) the second threshold the moment it first enrages,
+      // so the very next real hit it takes is overwhelmingly likely to cross the deeper line —
+      // deterministic-ish without controlling the exact damage of any single live shot.
+      if (B.e.enraged && !B.e.enraged2 && B.e.hp > Math.round(B.e.maxhp * H.ENRAGE2_HP_PCT * 1.05)) {
+        B.e.hp = Math.round(B.e.maxhp * H.ENRAGE2_HP_PCT * 1.05);
+      }
+      if (B.e.enraged2 && !sawTier2) sawTier2 = true;
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `second-tier-enrage battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    assert(sawTier1, 'the boss should have reached the first enrage tier during the live bot-vs-bot fight');
+    assert(sawTier2, 'the boss should have reached the second enrage tier during the live bot-vs-bot fight');
     clearTimers();
   });
 
