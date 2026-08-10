@@ -213,7 +213,7 @@ function loadGame() {
       SIG4_LEVEL, NIGHTWARD_REFLECT_PCT, NIGHTWARD_DRAIN_PCT,
       rollWind, forecastWindDisplay, WIND_MAX,
       ACHIEVEMENTS, checkAchievements, refreshAch, achRewardText,
-      canPrestige, newGamePlus, PRESTIGE_STAGE_REQ, PRESTIGE_STAT_PCT
+      canPrestige, newGamePlus, PRESTIGE_STAGE_REQ, PRESTIGE_STAT_PCT, PRESTIGE_GOLD_BONUS
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -2414,7 +2414,7 @@ const flush = () => new Promise((r) => setImmediate(r));
   });
 
   // -- TEST 28: New Game+ — gated behind a milestone, resets the run, keeps the career record, stacks a permanent stat bonus --
-  await test('New Game+: gated behind a ladder milestone, resets the run but keeps the career record, and permanently raises resolved stats each reset', async () => {
+  await test('New Game+: gated behind a ladder milestone, resets the run but keeps the career record, and permanently raises resolved stats and starting gold each reset', async () => {
     clearTimers();
     await H.wipeSave();
     let sv = H.save;   // newGamePlus() (like wipeSave()) replaces the save object wholesale, so re-fetch H.save after each reset
@@ -2451,7 +2451,7 @@ const flush = () => new Promise((r) => setImmediate(r));
     sv = H.save;   // pick up the fresh save object newGamePlus() installed
 
     assert(sv.level === 1 && sv.exp === 0, `level/exp should reset to the start (got level ${sv.level}, exp ${sv.exp})`);
-    assert(sv.gold === 120, `gold should reset to the starting amount (got ${sv.gold})`);
+    assert(sv.gold === 120 + 1 * H.PRESTIGE_GOLD_BONUS, `gold should reset to the starting amount plus one stack of the prestige gold bonus (got ${sv.gold})`);
     assert(sv.stage === 1, `stage should reset to 1 (got ${sv.stage})`);
     assert(Object.values(sv.gear).every(t => t === 0), `gear should reset to tier 0 (got ${JSON.stringify(sv.gear)})`);
     assert(sv.skillPts === 0 && Object.keys(sv.skillUpg).length === 0, 'trained skill upgrades should reset');
@@ -2468,6 +2468,7 @@ const flush = () => new Promise((r) => setImmediate(r));
     H.$('btnDenPrestige').click();
     sv = H.save;
     assert(sv.prestige === 2, `a second reset should stack the prestige count (got ${sv.prestige})`);
+    assert(sv.gold === 120 + 2 * H.PRESTIGE_GOLD_BONUS, `the starting-gold bonus should stack with a second reset too (got ${sv.gold})`);
 
     // -- the carry-over bonus is real, stacks, and only ever applies to the player's own campaign dragon --
     H.B.modeType = 'campaign';
