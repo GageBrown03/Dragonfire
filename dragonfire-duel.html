@@ -337,7 +337,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
       <button class="subBtn" id="btnDenTitle">Title</button>
     </div>
     <div class="rowBtns">
-      <button class="subBtn" id="btnDenPrestige" title="Reset stage/level/gold/gear/skills — keeps your record, achievements and hunt grades, and permanently strengthens your dragon">New Game+</button>
+      <button class="subBtn" id="btnDenPrestige" title="Reset stage/level/gear/skills — keeps your record, achievements and hunt grades, and permanently strengthens your dragon plus boosts starting gold">New Game+</button>
     </div>
   </div>
 
@@ -446,7 +446,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
       <div class="sec">Alpha bosses</div>
       Every 5th stage is an <b>alpha</b> — a named boss with a tougher fight. Past 40% HP it <b>enrages</b>, hitting harder and fighting more aggressively, and triggers its own signature hazard: Cindermaw scorches the ground, Glacierfang raises an ice wall, Quakehide cracks open a crater, Stormcrown's bolt strikes a second point, Nightgorge blinks behind you, Plaguewing's cloud lingers. Fought down past 15% HP it enrages a second time (💢), hitting and aiming even more dangerously. Felling one always pays a bonus skill point.
       <div class="sec">Beyond the ladder</div>
-      Every win is graded <b>S/A/B/C</b> by how fast and clean the hunt was, for an EXP/gold bonus. From the Den you can also launch a <b>Side Hunt</b> (an off-ladder practice fight for reduced rewards) or a <b>Trial</b> (an off-ladder fight with a constraint — No Healing, Windstorm, or Halved Stamina — that pays better than a Side Hunt). Milestones quietly pay out as <b>Achievements</b>, tracked in their own Den panel. Once you've reached stage 10, <b>New Game+</b> resets your ladder run for a small permanent stat bonus, keeping your career record intact.
+      Every win is graded <b>S/A/B/C</b> by how fast and clean the hunt was, for an EXP/gold bonus. From the Den you can also launch a <b>Side Hunt</b> (an off-ladder practice fight for reduced rewards) or a <b>Trial</b> (an off-ladder fight with a constraint — No Healing, Windstorm, or Halved Stamina — that pays better than a Side Hunt). Milestones quietly pay out as <b>Achievements</b>, tracked in their own Den panel. Once you've reached stage 10, <b>New Game+</b> resets your ladder run for a small permanent stat bonus plus extra starting gold each time, keeping your career record intact.
     </div>
     <div class="rowBtns"><button class="bigBtn" id="btnHelpClose" style="font-size:14px;padding:10px 26px">Close</button></div>
   </div></div>
@@ -662,13 +662,15 @@ function unsocketStone(slot){
 // achievements and hunt-grade tally (the "who this dragon has been") persist, and each
 // reset stacks a small permanent stat bump so a fresh run is genuinely a little stronger,
 // not just cosmetic. Gated behind a real ladder milestone so it can't be spammed turn one.
-const PRESTIGE_STAGE_REQ=10, PRESTIGE_STAT_PCT=0.03;
+const PRESTIGE_STAGE_REQ=10, PRESTIGE_STAT_PCT=0.03, PRESTIGE_GOLD_BONUS=40;
 function canPrestige(){ return (save.record.bestStage||1)>=PRESTIGE_STAGE_REQ; }
 function newGamePlus(){
   if(!canPrestige())return false;
   const keepKey=save.dragonKey, keepRecord=save.record, keepAch=save.achieved,
         keepSound=save.sound, keepPrestige=(save.prestige||0)+1;
-  save={v:1,dragonKey:keepKey,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},
+  // A second carry-over alongside the flat stat bump: every reset also starts the fresh
+  // run with a little more gold in the bank, stacking the same way the stat bonus does.
+  save={v:1,dragonKey:keepKey,level:1,exp:0,gold:120+keepPrestige*PRESTIGE_GOLD_BONUS,stage:1,potions:{hp:1,mp:1},
     amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:keepSound,
     record:keepRecord,skillPts:0,skillUpg:{},stones:blankStones(),achieved:keepAch,prestige:keepPrestige};
   persist();
@@ -2283,7 +2285,7 @@ $('btnDenPrestige').addEventListener('click',()=>{
   if(!canPrestige())return;
   sfx.click();
   const nextN=(save.prestige||0)+1;
-  if(!confirm('Start New Game+ (run #'+(nextN+1)+')? Level, EXP, gold, gear, trained skills, amps and stones reset to the start. Wins/losses, best stage, achievements and hunt grades are kept, and your dragon permanently gains +'+Math.round(PRESTIGE_STAT_PCT*100)+'% ATK/DEF/AGI/LUK for this and every future run.'))return;
+  if(!confirm('Start New Game+ (run #'+(nextN+1)+')? Level, gear, trained skills, amps and stones reset to the start. Wins/losses, best stage, achievements and hunt grades are kept, and your dragon permanently gains +'+Math.round(PRESTIGE_STAT_PCT*100)+'% ATK/DEF/AGI/LUK plus +'+(nextN*PRESTIGE_GOLD_BONUS)+' starting gold for this and every future run.'))return;
   newGamePlus();
   refreshDen();
 });
@@ -2352,11 +2354,11 @@ function refreshDen(){
     '<span><b>'+rec.lifeGold+'g</b> earned</span>'+
     '<span title="Hunt grades earned">'+['S','A','B','C'].map(g=>'<b>'+rec.grades[g]+'</b>'+g).join(' ')+'</span>'+
     '<span title="Achievements earned">🏆 <b>'+ACHIEVEMENTS.filter(a=>save.achieved[a.id]).length+'</b>/'+ACHIEVEMENTS.length+'</span>'+
-    (save.prestige?'<span title="New Game+ resets — each stacks +'+Math.round(PRESTIGE_STAT_PCT*100)+'% ATK/DEF/AGI/LUK">♻ <b>'+save.prestige+'</b> NG+</span>':'');
+    (save.prestige?'<span title="New Game+ resets — each stacks +'+Math.round(PRESTIGE_STAT_PCT*100)+'% ATK/DEF/AGI/LUK and +'+PRESTIGE_GOLD_BONUS+' starting gold">♻ <b>'+save.prestige+'</b> NG+</span>':'');
   const canNG=canPrestige();
   $('btnDenPrestige').disabled=!canNG;
   $('btnDenPrestige').title=canNG?
-    ('Reset stage/level/gold/gear/skills to the start — record, achievements and hunt grades are kept, and your dragon permanently gains +'+Math.round(PRESTIGE_STAT_PCT*100)+'% ATK/DEF/AGI/LUK (stacks with any earlier resets).'):
+    ('Reset stage/level/gear/skills to the start — record, achievements and hunt grades are kept, and your dragon permanently gains +'+Math.round(PRESTIGE_STAT_PCT*100)+'% ATK/DEF/AGI/LUK plus +'+PRESTIGE_GOLD_BONUS+' starting gold per reset (stacks with any earlier resets).'):
     ('Reach stage '+PRESTIGE_STAGE_REQ+' at least once to unlock New Game+ (best stage so far: '+(rec.bestStage||1)+').');
   $('denGear').innerHTML=Object.keys(GEAR).map(k=>{
     const g=GEAR[k], tier=save.gear[k]||0;

@@ -1404,6 +1404,90 @@ queued behind it.*
     ENRAGES!" text and Cindermaw's own scorch-hazard telegraph (screenshot taken), with no
     console errors.
 
+## Tier K — Fifth wave of polish (queue ran dry a fifth time)
+
+*Added 2026-08-10 — Tiers A–J are all shipped and the queue ran dry again. Same rules as
+always: read CLAUDE.md, topmost unchecked, one per run, treat every item as a direction not
+a spec. This wave opens with the New Game+ item's own deferred note (a second carry-over
+choice) and leaves two more ideas queued behind it.*
+
+- [x] **New Game+: a second carry-over — starting gold.** New Game+ shipped in Tier I with
+  one carry-over (a flat +3% ATK/DEF/AGI/LUK per reset); its own note flagged a second
+  carry-over, e.g. a starting-gold bump, as the natural next step.
+  - *Intent:* a New Game+ reset feels like it's building toward more than one kind of
+    strength — a little more starting capital to spend at the shop on top of the stat bump,
+    so the very first few battles of a fresh run already feel different, not just the combat
+    math.
+  - *Weigh:* flat per-reset bonus vs scaling with prestige count (stacking, matching how the
+    stat bonus already stacks); does it show up anywhere besides the Den tooltip/confirm
+    dialog (the Field Guide's New Game+ blurb, for consistency with the Field Guide
+    catch-up item)?
+  - *Extend:* `newGamePlus()`, `PRESTIGE_STAT_PCT`'s sibling constant, the Den's NG+
+    button/tooltip and confirm dialog, the Field Guide's "Beyond the ladder" section.
+  - *Shipped:* a new `PRESTIGE_GOLD_BONUS=40` constant, applied in `newGamePlus()`'s save
+    reset right alongside the existing stat-bonus carry-over — the fresh save's starting
+    gold is now `120+keepPrestige*PRESTIGE_GOLD_BONUS` instead of a flat `120`, stacking the
+    same way the stat bonus already does (NG+1 starts with 160g, NG+2 with 200g, and so on).
+    Went with scaling-by-prestige-count over a flat one-time bump from the Weigh list, since
+    a flat bonus would stop mattering after the first reset while the existing stat bonus
+    keeps stacking — a non-stacking second carry-over would read as strictly weaker than the
+    first, which didn't fit "a second carry-over," just a smaller one. Updated every visible
+    surface per the Weigh question: the Den's confirm dialog now states the exact gold the
+    next reset grants, the NG+ record tag and the button's locked/unlocked tooltips both
+    mention the per-reset gold bonus alongside the stat one, and the Field Guide's "Beyond
+    the ladder" section now reads "...for a small permanent stat bonus plus extra starting
+    gold each time...". Guessed the 40g/reset size (roughly a third of a starting Calm Wind
+    purchase, so a first NG+ run can afford one extra early item without changing the shop's
+    prices) — a future run could retune it once resets are actually chained at higher
+    prestige counts.
+  - *Done when:* a New Game+ reset visibly starts the player with more gold than the plain
+    120g baseline, the bonus stacks across resets, and it's stated wherever the stat bonus
+    already is; harness asserts the exact resolved starting gold after one and after two
+    resets, and that a never-prestiged save is unaffected. **Verified**: harness test 28
+    (extended) asserts the first reset lands on exactly `120+1*PRESTIGE_GOLD_BONUS` gold and
+    a second, stacked reset lands on exactly `120+2*PRESTIGE_GOLD_BONUS`, alongside the
+    pre-existing assertions that gear/skills/amps/stones still reset and the career
+    record/achievements still persist, and the full bot-vs-bot post-reset campaign battle
+    still completes with strict turn alternation. `node harness.mjs` is 31/31 green. Also
+    confirmed live in Playwright/Chromium: seeding a save at stage 9/best-stage 10 through
+    the real `window.storage` load path and clicking the real `#btnDenPrestige` button moves
+    the Den's gold readout 500g→160g (exactly `120+1*40`) alongside level/stage/gear all
+    resetting to their defaults, while the career record line (5 wins, 1 loss, 1 alpha
+    felled, best stage 10, 900g earned, hunt grades, achievements) stayed byte-identical
+    across the reset and the new "NG+1" tag appeared (before/after screenshots taken), with
+    no console errors.
+
+- [ ] **More achievement milestones.** The achievement track shipped with 6 one-time
+  milestones, all derived from `save.record`; the item's own Weigh question ("which handful
+  of feats are worth calling out") only picked a first handful — several natural milestones
+  are now derivable from fields that didn't exist yet when the list was written (`prestige`,
+  fully-forged `gear`, a maxed hunt-grade tally).
+  - *Intent:* the Achievements panel keeps giving the career record teeth as new systems
+    (New Game+, gear tiers, hunt grades) mature, instead of going stale at its original 6.
+  - *Weigh:* which 2–4 new feats are worth calling out (first New Game+, all gear at max
+    tier, N total S-grade hunts, N side hunts or trials won)? One-time only, matching the
+    existing set's shape — no new tracking needed if every idea is derivable from fields
+    `save`/`save.record` already carries.
+  - *Extend:* `ACHIEVEMENTS`, `checkAchievements`, `refreshAch`, the Den's Achievements
+    panel — all already data-driven off the array, so new entries should need no new
+    plumbing, same as the original 6 needed none.
+
+- [ ] **A chasm weather hook.** Biome weather shipped a hook for cinder (ember rain) and
+  tundra (harsh gusts); its own note explicitly left meadow and the chasm without one.
+  Meadow was a deliberate calm baseline by the original item's own design call, but the
+  chasm — the ladder's most distinct biome, already built around a terrain hazard — was
+  never deliberately excluded, just not gotten to.
+  - *Intent:* the Sundered Chasm's wind pennant means something beyond the gap hazard it
+    already has, the way cinder/tundra's weather beats gave those biomes a second reason to
+    feel distinct.
+  - *Weigh:* keep it to the same fixed-cadence, zero-extra-`Math.random()` shape
+    `triggerBiomeWeather` already uses for cinder/tundra (the documented RNG-stream-shift
+    risk several earlier tiers hit) — e.g. a periodic tremor that nudges the chasm's gap
+    edges, or chips terrain near the lip, rather than anything that needs a fresh roll.
+    Explicitly leave meadow alone; only the chasm is in scope here.
+  - *Extend:* `BIOME_WEATHER`, `triggerBiomeWeather`, `carveChasm`/the chasm's `gap` terrain
+    flag, the same toast/floatTxt/pennant telegraph pattern cinder/tundra already use.
+
 ---
 
 *Standing concern, not a task:* difficulty / EXP / gold curve tuning is evaluated
