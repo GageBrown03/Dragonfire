@@ -1457,7 +1457,7 @@ choice) and leaves two more ideas queued behind it.*
     across the reset and the new "NG+1" tag appeared (before/after screenshots taken), with
     no console errors.
 
-- [ ] **More achievement milestones.** The achievement track shipped with 6 one-time
+- [x] **More achievement milestones.** The achievement track shipped with 6 one-time
   milestones, all derived from `save.record`; the item's own Weigh question ("which handful
   of feats are worth calling out") only picked a first handful — several natural milestones
   are now derivable from fields that didn't exist yet when the list was written (`prestige`,
@@ -1471,6 +1471,29 @@ choice) and leaves two more ideas queued behind it.*
   - *Extend:* `ACHIEVEMENTS`, `checkAchievements`, `refreshAch`, the Den's Achievements
     panel — all already data-driven off the array, so new entries should need no new
     plumbing, same as the original 6 needed none.
+  - *Done when:* three new one-time milestones exist, fire once each off fields `save`
+    already carries, pay out, and render in the Den's Achievements panel alongside the
+    original six. **Shipped**: added `newGamePlus` (`save.prestige>=1`, first New Game+
+    reset), `fullyForged` (every `GEAR` line — fang/scale/charm/talon/ward — resolved onto
+    `save.gear` at its max tier), and `fiveS` (`save.record.grades.S>=5`). Picked these
+    three over "N side hunts/trials won" per the Weigh note's own constraint — side/trial
+    wins aren't separately tallied anywhere in `save.record` today, so that idea would have
+    needed new tracking plumbing the other three didn't. `checkAchievements()`'s `check`
+    signature widened from `save.record` to the full `save` object (existing six checks
+    updated to `s.record.x`) since `newGamePlus`/`fullyForged` need fields outside
+    `save.record`; `refreshAch`/the Den panel needed no changes, being already data-driven
+    off the `ACHIEVEMENTS` array. Verified live in Playwright/Chromium: seeded a save via the
+    real `window.storage` load path with `prestige=1` and every gear line maxed, loaded the
+    game, opened the real Den (`#btnContinue`) and Achievements panel (`#btnDenAch`) — all 9
+    rows render, with all still Locked (same as the original 6, `checkAchievements()` only
+    runs on a real win, not on load); calling the real `checkAchievements()` (what
+    `victory()` calls) then correctly earned `newGamePlus`/`fullyForged` (plus
+    `firstWin`/`firstAlpha`/`firstS` from the seeded record) and the panel re-rendered them
+    as Earned with correct reward text, no console errors, screenshot taken. `node
+    harness.mjs` is 32/32 green, including a new assertion (added right after the original
+    achievements test) that each of the three new milestones fires exactly once off the
+    right save field, pays its reward, doesn't double-fire, survives save/load, and renders
+    in the Den panel.
 
 - [ ] **A chasm weather hook.** Biome weather shipped a hook for cinder (ember rain) and
   tundra (harsh gusts); its own note explicitly left meadow and the chasm without one.
