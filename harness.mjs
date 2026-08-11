@@ -2243,6 +2243,60 @@ const flush = () => new Promise((r) => setImmediate(r));
     clearTimers();
   });
 
+  // -- TEST 27b: three more achievement milestones derived from prestige/gear/grades --
+  await test('more achievement milestones: New Game+, fully-forged gear, and 5 S-grade hunts each fire once off existing save fields', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 1; sv.gold = 0; sv.stage = 1;
+
+    assert(H.ACHIEVEMENTS.length >= 9, `expected at least 9 achievements after the new milestones (got ${H.ACHIEVEMENTS.length})`);
+    const ids = H.ACHIEVEMENTS.map(a => a.id);
+    assert(ids.includes('newGamePlus') && ids.includes('fullyForged') && ids.includes('fiveS'),
+      `expected newGamePlus/fullyForged/fiveS among the achievements (got ${JSON.stringify(ids)})`);
+
+    assert(H.checkAchievements().length === 0, 'a fresh save should not earn any of the new milestones yet');
+
+    // -- New Game+ milestone fires off save.prestige, not save.record --
+    sv.prestige = 1;
+    let earned = H.checkAchievements();
+    assert(earned.length === 1 && earned[0].id === 'newGamePlus', `setting prestige to 1 should earn newGamePlus (got ${JSON.stringify(earned.map(a => a.id))})`);
+    assert(sv.achieved.newGamePlus === true, 'newGamePlus should be recorded in save.achieved');
+
+    // -- fully-forged milestone fires only once every GEAR line is at its max tier --
+    const gearKeys = Object.keys(H.GEAR);
+    for (const k of gearKeys) sv.gear[k] = H.GEAR[k].vals.length - 2; // one tier short of max on every line
+    assert(H.checkAchievements().length === 0, 'gear one tier short of max on every line should not earn fullyForged yet');
+    for (const k of gearKeys) sv.gear[k] = H.GEAR[k].vals.length - 1; // now maxed on every line
+    earned = H.checkAchievements();
+    assert(earned.length === 1 && earned[0].id === 'fullyForged', `maxing every gear line should earn fullyForged (got ${JSON.stringify(earned.map(a => a.id))})`);
+
+    // -- five-S-grade milestone fires off save.record.grades.S (pre-mark firstS so it doesn't
+    // also fire here — it's already covered by the original achievements test) --
+    sv.achieved.firstS = true;
+    sv.record.grades.S = 4;
+    assert(H.checkAchievements().length === 0, '4 S-grade hunts should not earn fiveS yet');
+    sv.record.grades.S = 5;
+    earned = H.checkAchievements();
+    assert(earned.length === 1 && earned[0].id === 'fiveS', `5 S-grade hunts should earn fiveS (got ${JSON.stringify(earned.map(a => a.id))})`);
+
+    // -- none of the three re-fire or re-pay on a later check --
+    const goldBefore = sv.gold;
+    assert(H.checkAchievements().length === 0, 'already-earned new milestones should not fire again');
+    assert(sv.gold === goldBefore, 'gold should not be paid out twice for an already-earned milestone');
+
+    // -- survive save then load --
+    await H.persist();
+    sv.achieved = {};
+    await H.loadSave();
+    assert(sv.achieved.newGamePlus === true && sv.achieved.fullyForged === true && sv.achieved.fiveS === true,
+      `the three new milestones should survive save/load (got ${JSON.stringify(sv.achieved)})`);
+
+    // -- visible in the Den's Achievements panel alongside the original six --
+    H.refreshAch();
+    assert(H.$('achRows').children.length === H.ACHIEVEMENTS.length, 'every achievement, including the three new ones, should render a row in the Den panel');
+  });
+
   // -- TEST 28: trial stages — modifier battles, one active constraint, bigger-than-side-hunt payout --
   await test('trials: launchable from the Den with one active constraint, enforce it in battle, pay more than a side hunt, and the bot-vs-bot sim stays green', async () => {
     clearTimers();

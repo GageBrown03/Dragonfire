@@ -1792,12 +1792,15 @@ function huntGrade(turns,hpPct){
 // One-off milestone payouts derived entirely from save.record, which victory() already
 // keeps up to date. Each fires exactly once per save (tracked in save.achieved).
 const ACHIEVEMENTS=[
-  {id:'firstWin',name:'First Blood',ic:'🏅',desc:'Win your first battle.',reward:{gold:100},check:r=>r.wins>=1},
-  {id:'firstAlpha',name:'Boss Slayer',ic:'👑',desc:'Fell your first alpha boss.',reward:{gold:200,skillPts:1},check:r=>r.alphaWins>=1},
-  {id:'firstS',name:'Flawless',ic:'✨',desc:'Earn your first S-grade hunt.',reward:{gold:150},check:r=>r.grades.S>=1},
-  {id:'tenWins',name:'Seasoned Hunter',ic:'⚔️',desc:'Win 10 battles.',reward:{gold:300},check:r=>r.wins>=10},
-  {id:'stage10',name:'Deep Ladder',ic:'🪜',desc:'Reach stage 10.',reward:{gold:250,skillPts:1},check:r=>r.bestStage>=10},
-  {id:'threeAlphas',name:'Trophy Hunter',ic:'🏆',desc:'Fell 3 alpha bosses.',reward:{gold:400,skillPts:1},check:r=>r.alphaWins>=3}
+  {id:'firstWin',name:'First Blood',ic:'🏅',desc:'Win your first battle.',reward:{gold:100},check:s=>s.record.wins>=1},
+  {id:'firstAlpha',name:'Boss Slayer',ic:'👑',desc:'Fell your first alpha boss.',reward:{gold:200,skillPts:1},check:s=>s.record.alphaWins>=1},
+  {id:'firstS',name:'Flawless',ic:'✨',desc:'Earn your first S-grade hunt.',reward:{gold:150},check:s=>s.record.grades.S>=1},
+  {id:'tenWins',name:'Seasoned Hunter',ic:'⚔️',desc:'Win 10 battles.',reward:{gold:300},check:s=>s.record.wins>=10},
+  {id:'stage10',name:'Deep Ladder',ic:'🪜',desc:'Reach stage 10.',reward:{gold:250,skillPts:1},check:s=>s.record.bestStage>=10},
+  {id:'threeAlphas',name:'Trophy Hunter',ic:'🏆',desc:'Fell 3 alpha bosses.',reward:{gold:400,skillPts:1},check:s=>s.record.alphaWins>=3},
+  {id:'newGamePlus',name:'Reborn',ic:'♻️',desc:'Complete your first New Game+ reset.',reward:{gold:250,skillPts:1},check:s=>(s.prestige||0)>=1},
+  {id:'fullyForged',name:'Fully Forged',ic:'⚒️',desc:'Max every gear line (ATK/DEF/AGI/LUK/E.Ward).',reward:{gold:500},check:s=>Object.keys(GEAR).every(k=>(s.gear[k]||0)>=GEAR[k].vals.length-1)},
+  {id:'fiveS',name:'Untouchable',ic:'💎',desc:'Earn 5 S-grade hunts.',reward:{gold:350,skillPts:1},check:s=>s.record.grades.S>=5}
 ];
 function achRewardText(rw){
   const parts=[]; if(rw.gold)parts.push('+'+rw.gold+' Gold'); if(rw.skillPts)parts.push('+'+rw.skillPts+' skill point'+(rw.skillPts>1?'s':''));
@@ -1807,7 +1810,7 @@ function checkAchievements(){
   const earned=[];
   for(const a of ACHIEVEMENTS){
     if(save.achieved[a.id])continue;
-    if(!a.check(save.record))continue;
+    if(!a.check(save))continue;
     save.achieved[a.id]=true;
     save.gold+=a.reward.gold||0; save.skillPts+=a.reward.skillPts||0;
     earned.push(a);
