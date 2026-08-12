@@ -1495,7 +1495,7 @@ choice) and leaves two more ideas queued behind it.*
     right save field, pays its reward, doesn't double-fire, survives save/load, and renders
     in the Den panel.
 
-- [ ] **A chasm weather hook.** Biome weather shipped a hook for cinder (ember rain) and
+- [x] **A chasm weather hook.** Biome weather shipped a hook for cinder (ember rain) and
   tundra (harsh gusts); its own note explicitly left meadow and the chasm without one.
   Meadow was a deliberate calm baseline by the original item's own design call, but the
   chasm — the ladder's most distinct biome, already built around a terrain hazard — was
@@ -1510,6 +1510,47 @@ choice) and leaves two more ideas queued behind it.*
     Explicitly leave meadow alone; only the chasm is in scope here.
   - *Extend:* `BIOME_WEATHER`, `triggerBiomeWeather`, `carveChasm`/the chasm's `gap` terrain
     flag, the same toast/floatTxt/pennant telegraph pattern cinder/tundra already use.
+  - *Shipped*: added `BIOME_WEATHER.chasm` (`kind:'tremor'`, same `every:4` cadence as
+    cinder/tundra) that widens the existing gap by a fixed `widen:14`px per pulse up to a
+    `maxHalf:200` cap, entirely deterministic — no new `Math.random()` call. `carveChasm`
+    was split into `carveChasm()` (rolls the initial center/half-width once, as before, into
+    new module-level `chasmCx`/`chasmHalfW`/`chasmSoft`) and a reusable `carveChasmAt(cx,
+    halfW, soft)` core; `widenChasm(delta, maxHalfW)` grows `chasmHalfW` and re-runs that
+    core, so the pit's shape stays identical to the original carve, just wider. Dragons
+    already standing where the gap grows fall in through the existing per-frame
+    `Dragon.update()` ground check and take the same fall damage as walking into the
+    original gap — no new physics path. `triggerBiomeWeather` fires the same toast/floatTxt/
+    pennant-warning telegraph pattern as ember rain and gusts (`"A tremor widens the gap!"`),
+    and once the cap is hit it simply stops pulsing (`B.weatherActive` stays false) rather
+    than shrinking back. Field Guide (`#mHelp`) updated with a line about the gap tightening
+    over the course of a chasm fight. Verified live in Playwright/Chromium: seeded a stage-4
+    (chasm) campaign save, called the real `startBattle(4)`, read the real `chasmHalfW` and
+    scanned `ground` for the pit width — off-cadence `triggerBiomeWeather()` changed nothing,
+    on-cadence widened `chasmHalfW` by exactly 14 and the measured gap from 189px to 223px,
+    with the pennant showing the `⚠` warning state and the on-screen toast/banner both firing
+    (screenshot taken, no console errors). `node harness.mjs` is 32/32 green, with a new
+    assertion block in the existing biome-weather test (off-cadence no-op, on-cadence widens
+    by the advertised amount and the terrain itself, repeated pulses cap out and then stop)
+    plus a dedicated live bot-vs-bot chasm fight confirming the tremor fires through the real
+    turn loop, alternation stays intact, and the half-width never shrinks. Because this is
+    the first weather hook wired into the biome (chasm) that two existing bot-vs-bot tests
+    already ran live fights in (the 4th-biome test and the boss-hazard/achievement tests),
+    those fights now redraw terrain mid-battle where they didn't before — a real behavior
+    change that shifts the shared seeded `Math.random` stream for everything after it, the
+    same documented risk earlier tiers (Stormcrown, the 3rd signature tier) already called
+    out. Confirmed by isolating the change (game code only, unmodified original harness):
+    the shift alone, with no new tests at all, was enough to flip two downstream bot-vs-bot
+    outcomes (Quakehide never crossing its 40% enrage line in one fight; a near-even
+    achievement-check fight resolving as a loss instead of a win) — a plain budget bump alone
+    didn't fix either, since the issue was the fight's actual outcome under the shifted
+    stream, not a timeout. Fixed by raising the player's level in those two specific
+    pre-existing live-fight fixtures (Quakehide's forced fight: level 4 → 10; the
+    achievement-check fight: level 3 → 8) so the matchup is decisively favorable and immune
+    to exactly where the shifted stream lands, with comments at each site explaining why.
+    Uncertain: the `maxHalf:200` cap and `widen:14` numbers are a judgment call sized to stay
+    well clear of either spawn point even at the cap (see the code comment's math) — untested
+    at very high stage numbers where terrain/obstacle layouts might differ more than in the
+    stages exercised here.
 
 ---
 
