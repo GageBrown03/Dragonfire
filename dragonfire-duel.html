@@ -432,7 +432,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
       <b>Aim</b> with ＋/− (or W/S). <b>Fire</b> by holding FIRE (or Space) to charge power, release to launch — or <b>drag back from your dragon</b> like a slingshot.<br>
       Firing, healing, shielding, or blinking <b>ends your turn</b>. Potions don't.<br>Your <b>previous shot</b>'s angle, power and wind stay on screen, and a gold ✕ marks where it landed — read the new wind and correct from your last shot, artillery style. A gold line on FIRE marks your last power.
       <div class="sec">Wind, terrain & obstacles</div>
-      The pennant shows the wind — it bends every shot and changes each turn. The whole battlefield is on screen by default; tap 🎯 (or press Z) for a close-up action camera that follows movement and shots. Blasts carve craters; dragons take fall damage. Stone spires block your path and <b>floating rocks block your shots</b> — arc over them or blast them apart. Wooden <b>supply crates</b> sometimes sit on the field — break one for an instant gold payout. Battles rage over meadow, cinder wastes (ember rain occasionally chips HP off obstacles and crates), frozen reaches (gusts periodically double the wind), or a sundered chasm that splits the field — arc your shots over the gap, or risk a fall.
+      The pennant shows the wind — it bends every shot and changes each turn. The whole battlefield is on screen by default; tap 🎯 (or press Z) for a close-up action camera that follows movement and shots. Blasts carve craters; dragons take fall damage. Stone spires block your path and <b>floating rocks block your shots</b> — arc over them or blast them apart. Wooden <b>supply crates</b> sometimes sit on the field — break one for an instant gold payout. Battles rage over meadow, cinder wastes (ember rain occasionally chips HP off obstacles and crates), frozen reaches (gusts periodically double the wind), or a sundered chasm that splits the field — arc your shots over the gap, or risk a fall. The chasm's own gap widens with periodic tremors, so its footing only gets tighter as the fight goes on.
       <div class="sec">Skills & MP</div>
       Skills cost MP (+14 regained per turn). Every dragon shares Flame Shot, Twin Shot, Mega Blast, Heal, Shield, and 🪞 <b>Ward</b> (raises a ward that reflects a share of the next hit back at its attacker), plus <b>two signature skills</b> — the second unlocks at level 4 and a <b>third at level 8</b>: life-stealing boomerangs, freezing slabs, splitting meteors, sky bolts, bouncing stones, poison clouds, walls of ice, a shadow-step escape, and more. <b>Dusk</b> alone grows a 4th signature at level 10: 🖤 <b>Night Ward</b>, a deeper ward that reflects more of the hit and drains life from it. Spend level-up <b>skill points</b> in the Den's <b>Skills</b> panel to train any of them stronger.
       <div class="sec">Gear & stats</div>
@@ -716,13 +716,14 @@ const BIOME_ORDER=['meadow','cinder','tundra','chasm'];
 
 // Biome-linked weather: one telegraphed hook per hazardous biome, on a fixed turn cadence
 // alongside the wind (deterministic, not a random roll, so it can be learned and planned
-// around like the turn counter itself). Meadow (the calm baseline) and the chasm (whose
-// gap is already its own hazard) sit this out. Fires before the active side aims, so it
-// reads the same way the wind pennant already does — visible before you commit a shot,
-// not a surprise after you fire.
+// around like the turn counter itself). Meadow (the calm baseline) sits this out; the
+// chasm's own gap hazard grows via the same cadence rather than a fresh hook. Fires before
+// the active side aims, so it reads the same way the wind pennant already does — visible
+// before you commit a shot, not a surprise after you fire.
 const BIOME_WEATHER={
   cinder:{kind:'emberrain', every:4, pct:0.10, label:'Ember rain'},
-  tundra:{kind:'gust',      every:4, mult:1.6, label:'Harsh gust'}
+  tundra:{kind:'gust',      every:4, mult:1.6, label:'Harsh gust'},
+  chasm:{kind:'tremor',     every:4, widen:14, maxHalf:200, label:'Chasm tremor'}
 };
 function triggerBiomeWeather(){
   B.weatherActive=false;
@@ -743,6 +744,11 @@ function triggerBiomeWeather(){
     B.weatherActive=true;
     floatTxt((B.p.x+B.e.x)/2,Math.min(B.p.y,B.e.y)-170,'Ember rain scorches the field!','#ff8a3d',true);
     announce('Ember rain chips the battlefield in the '+BIOMES[curBiomeKey].name+'!');
+  }else if(w.kind==='tremor'){
+    if(!widenChasm(w.widen,w.maxHalf))return;   // capped: gap stops growing, no pulse this cadence
+    B.weatherActive=true;
+    floatTxt((B.p.x+B.e.x)/2,Math.min(B.p.y,B.e.y)-170,'A tremor widens the gap!','#c98a52',true);
+    announce('A tremor cracks the '+BIOMES[curBiomeKey].name+' wider!');
   }
 }
 
@@ -827,6 +833,7 @@ const terrainCv=document.createElement('canvas'); terrainCv.width=WORLD.w; terra
 const tctx=terrainCv.getContext('2d');
 let speckSeed=1;
 let curBiome=BIOMES.meadow, curBiomeKey='meadow';
+let chasmCx=null, chasmHalfW=null, chasmSoft=50;
 
 function genTerrain(biomeKey){
   curBiomeKey=biomeKey||'meadow'; curBiome=BIOMES[curBiomeKey];
@@ -838,6 +845,7 @@ function genTerrain(biomeKey){
     ground[x]=clamp(y,WORLD.h*0.34,FLOOR-30);
   }
   flatten(SPAWN_P,150); flatten(SPAWN_E,150);
+  chasmCx=null; chasmHalfW=null;
   if(curBiome.gap){
     // signature hazard: a deep chasm splits the field — arc over it, or fall in and take
     // fall damage (uses the same fall-damage-on-landing rule as any other steep drop).
@@ -864,8 +872,11 @@ function genTerrain(biomeKey){
   redrawTerrain();
 }
 function carveChasm(){
-  const cx=(SPAWN_P+SPAWN_E)/2+rand(-50,50);
-  const halfW=rand(85,120), soft=50;
+  chasmCx=(SPAWN_P+SPAWN_E)/2+rand(-50,50);
+  chasmHalfW=rand(85,120); chasmSoft=50;
+  carveChasmAt(chasmCx,chasmHalfW,chasmSoft);
+}
+function carveChasmAt(cx,halfW,soft){
   const pitY=FLOOR-4;
   const x0=Math.max(0,Math.floor(cx-halfW-soft)), x1=Math.min(WORLD.w-1,Math.ceil(cx+halfW+soft));
   for(let x=x0;x<=x1;x++){
@@ -873,6 +884,18 @@ function carveChasm(){
     if(d<=halfW){ ground[x]=pitY; }
     else { const t=clamp(1-(d-halfW)/soft,0,1), e=t*t*(3-2*t); ground[x]=lerp(ground[x],pitY,e); }
   }
+}
+// biome-weather hook (chasm tremor): nudges the existing gap wider on the same fixed
+// cadence cinder/tundra use, deterministic (no extra Math.random() call) — mirrors
+// carveChasm's own shape rather than rolling anything fresh.
+function widenChasm(delta,maxHalfW){
+  if(chasmCx==null||chasmHalfW==null)return false;
+  const nh=Math.min(maxHalfW,chasmHalfW+delta);
+  if(nh<=chasmHalfW)return false;
+  chasmHalfW=nh;
+  carveChasmAt(chasmCx,chasmHalfW,chasmSoft);
+  redrawTerrain();
+  return true;
 }
 function flatten(cx,w){
   const y=ground[clamp(Math.round(cx),0,WORLD.w-1)];

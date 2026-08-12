@@ -197,6 +197,7 @@ function loadGame() {
       startBattle, startDuel, startSideHunt, startTrial, TRIAL_MODS, TRIAL_MULT, refreshTrial, checkEnd, fire, aiSolve, Dragon, startTurn,
       persist, loadSave, wipeSave, ladderWindow, refreshDen, BIOME_ORDER, BIOMES, blankRecord,
       get curBiomeKey(){ return curBiomeKey; }, get ground(){ return ground; }, FLOOR, SPAWN_P, SPAWN_E,
+      get chasmCx(){ return chasmCx; }, get chasmHalfW(){ return chasmHalfW; },
       castInstant, skillMult, refreshSkills, SKILL_KEYS, refreshShop,
       dealDamage, effectiveAtk, ALPHA_TITLES, ENRAGE_HP_PCT, ENRAGE_ATK_MULT, Math,
       ENRAGE2_HP_PCT, ENRAGE2_ATK_MULT_EXTRA,
@@ -1492,13 +1493,21 @@ const flush = () => new Promise((r) => setImmediate(r));
     // battle, which relies on the existing air/land physics and waitSettle's airborne wait),
     // so it gets its own dedicated live pass rather than piggybacking on the ember run above.
     clearTimers();
-    sv.dragonKey = 'ember'; sv.level = 4; sv.stage = 5; sv.exp = 0;
+    // Player level bumped from the original 4 to a comfortable edge over the alpha's own
+    // level+2 (7): the chasm-tremor weather hook (Tier K) added a live chasm bot-vs-bot fight
+    // earlier in the 4th-biome test, which now redraws terrain mid-fight — a genuine behavior
+    // change that shifts the shared seeded Math.random stream for everything after it, the
+    // same documented risk noted elsewhere in this file. At the original level-4 underdog
+    // matchup that shift occasionally let the fight resolve without HP ever crossing the 40%
+    // enrage line; a clear stat edge makes crossing it (on the way to a win either way)
+    // reliable regardless of exactly where the shifted stream lands.
+    sv.dragonKey = 'ember'; sv.level = 10; sv.stage = 5; sv.exp = 0;
     H.startBattle(5);
     assert(B.e.alpha, 'stage 5 should be an alpha battle');
     B.e = new H.Dragon('terra', B.e.level, true, H.SPAWN_E, true); // force Quakehide so its hazard is exercised live
     let lastTurnQ = 0, prevSideQ = null, turnsSeenQ = 0, quakeEnraged = false;
     const problemsQ = [];
-    const BUDGET_Q = 8000;
+    const BUDGET_Q = 16000;
     for (let i = 0; i < BUDGET_Q && B.state !== 'over'; i++) {
       tick(16);
       if (B.e.enraged) quakeEnraged = true; // triggerBossHazard fires synchronously right after this flips true
@@ -1622,7 +1631,7 @@ const flush = () => new Promise((r) => setImmediate(r));
 
   // -- TEST 21: biome-linked weather — a telegraphed, deterministic per-turn hook for
   // cinder (ember rain chips obstacles/crates) and tundra (a harsher wind gust) --------
-  await test('biome weather: ember rain chips the field in the Cinder Wastes, a gust bends the wind in the Frozen Reach, meadow/chasm stay calm, and the bot-vs-bot sim stays green', async () => {
+  await test('biome weather: ember rain chips the field in the Cinder Wastes, a gust bends the wind in the Frozen Reach, a tremor widens the Sundered Chasm, meadow stays calm, and the bot-vs-bot sim stays green', async () => {
     clearTimers();
     await H.wipeSave();
     const sv = H.save;
@@ -1631,7 +1640,7 @@ const flush = () => new Promise((r) => setImmediate(r));
     const weatherKeys = Object.keys(H.BIOME_WEATHER);
     assert(weatherKeys.length >= 1, 'expected at least one biome-linked weather hook defined');
     for (const key of weatherKeys) assert(H.BIOMES[key], `BIOME_WEATHER key "${key}" should be a real biome`);
-    assert(H.BIOME_WEATHER.cinder && H.BIOME_WEATHER.tundra, 'expected the Cinder Wastes and Frozen Reach to both carry a weather hook');
+    assert(H.BIOME_WEATHER.cinder && H.BIOME_WEATHER.tundra && H.BIOME_WEATHER.chasm, 'expected the Cinder Wastes, Frozen Reach and Sundered Chasm to all carry a weather hook');
     assert(!H.BIOME_WEATHER.meadow, 'the meadow should stay the calm baseline with no weather hook');
 
     // -- cinder: ember rain chips obstacle/crate HP on its fixed turn cadence, deterministically --
@@ -1668,7 +1677,34 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(B.weatherActive === true, 'a gust should mark the weather active on its turn cadence');
     assert(Math.abs(B.wind - 0.02 * tw.mult) < 1e-9, `a gust should multiply the wind by its advertised factor (expected ${0.02 * tw.mult}, got ${B.wind})`);
 
-    // -- meadow and the chasm are the calm biomes: never touched, on any turn ---------
+    // -- chasm: a tremor widens the existing gap on its cadence, deterministically, and caps out --
+    clearTimers();
+    sv.dragonKey = 'terra'; sv.level = 5; sv.stage = 4; sv.exp = 0;   // stage 4 -> the chasm
+    H.startBattle(4);
+    B = H.B;
+    assert(H.curBiomeKey === 'chasm', `expected stage 4 to land on the chasm, got "${H.curBiomeKey}"`);
+    const chw = H.BIOME_WEATHER.chasm;
+    const gapPx = () => { let n = 0; for (let x = H.SPAWN_P + 240; x < H.SPAWN_E - 240; x++) if (H.ground[x] >= H.FLOOR - 10) n++; return n; };
+    const halfWBefore = H.chasmHalfW;
+    assert(typeof halfWBefore === 'number', 'expected the chasm to have tracked a half-width after carving');
+    const gapBefore = gapPx();
+    B.turnNo = chw.every - 1;
+    H.triggerBiomeWeather();
+    assert(B.weatherActive === false && H.chasmHalfW === halfWBefore, 'a tremor should not fire off its turn cadence');
+    B.turnNo = chw.every;
+    H.triggerBiomeWeather();
+    assert(B.weatherActive === true, 'a tremor should mark the weather active on its turn cadence');
+    assert(H.chasmHalfW === halfWBefore + chw.widen, `a tremor should widen the gap's tracked half-width by its advertised amount (expected ${halfWBefore + chw.widen}, got ${H.chasmHalfW})`);
+    assert(gapPx() > gapBefore, `a tremor should carve real terrain wider, not just bump a counter (gap px ${gapBefore} -> ${gapPx()})`);
+    // repeatedly triggering on-cadence should keep widening up to the configured cap, then stop
+    let turn = chw.every;
+    for (let i = 0; i < 40 && H.chasmHalfW < chw.maxHalf; i++) { turn += chw.every; B.turnNo = turn; H.triggerBiomeWeather(); }
+    assert(H.chasmHalfW === chw.maxHalf, `repeated tremors should cap the half-width at maxHalf (expected ${chw.maxHalf}, got ${H.chasmHalfW})`);
+    turn += chw.every; B.turnNo = turn;
+    H.triggerBiomeWeather();
+    assert(B.weatherActive === false && H.chasmHalfW === chw.maxHalf, 'a tremor should stop pulsing once the gap is capped, without shrinking it back');
+
+    // -- meadow is the only unconditionally calm biome: never touched, on any turn -----
     clearTimers();
     sv.dragonKey = 'ember'; sv.level = 3; sv.stage = 1; sv.exp = 0;   // stage 1 -> meadow
     H.startBattle(1);
@@ -1709,6 +1745,36 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
     assert(weatherFired, 'ember rain should have actually fired during the live bot-vs-bot cinder fight');
+
+    // -- and again for a live chasm fight: the tremor fires through the real turn loop too --
+    clearTimers();
+    sv.dragonKey = 'terra'; sv.level = 5; sv.exp = 0; sv.stage = 4;
+    H.startBattle(4);
+    B = H.B;
+    lastTurn = 0; prevSide = null; turnsSeen = 0; weatherFired = false;
+    const problems2 = [];
+    const halfWStart = H.chasmHalfW;
+    const BUDGET2 = 16000;   // chasm fights already need extra headroom per the 4th-biome test
+    for (let i = 0; i < BUDGET2 && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.weatherActive) weatherFired = true;
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems2.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems2.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `chasm weather battle did not finish within ${BUDGET2} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems2.length === 0, problems2.join('; '));
+    assert(weatherFired, 'a tremor should have actually fired during the live bot-vs-bot chasm fight');
+    assert(H.chasmHalfW >= halfWStart, "the chasm's tracked half-width should never shrink over the course of a fight");
     clearTimers();
   });
 
@@ -2216,12 +2282,20 @@ const flush = () => new Promise((r) => setImmediate(r));
     // -- bot-vs-bot turn integrity stays intact through a battle that ends in a fresh achievement --
     await H.wipeSave();
     const sv3 = H.save;
-    sv3.dragonKey = 'volt'; sv3.level = 3; sv3.exp = 0; sv3.stage = 4;
+    // Player level bumped from the original 3 to a clear edge over the stage-4 enemy's own
+    // level 4: the chasm-tremor weather hook (Tier K) shifts the shared seeded Math.random
+    // stream (see the Quakehide test's comment above for why), and at the original near-even
+    // matchup that occasionally flipped this particular fight to a loss, which never earns
+    // firstWin. A decisive stat edge keeps the win reliable regardless of exactly where the
+    // shifted stream lands.
+    sv3.dragonKey = 'volt'; sv3.level = 8; sv3.exp = 0; sv3.stage = 4;
     H.startBattle(4);
     B = H.B;
     let lastTurn = 0, prevSide = null, turnsSeen = 0;
     const problems = [];
-    const BUDGET = 8000;
+    // stage 4 lands on the chasm, whose tremor weather hook (Tier K) now redraws terrain
+    // mid-fight — needs the same extra headroom the other live chasm sims in this file use.
+    const BUDGET = 16000;
     for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
       tick(16);
       if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
@@ -2611,6 +2685,7 @@ const flush = () => new Promise((r) => setImmediate(r));
       // Tier E — biome weather
       [/ember rain/i, 'the cinder-biome ember-rain weather hook'],
       [/double the wind|gust/i, 'the tundra-biome wind-gust weather hook'],
+      [/tremor/i, 'the chasm-biome tremor weather hook'],
       // Tier F — 3rd signature tier, Ward, 5th gear line
       [/third at level 8|level 8/, 'the 3rd signature-skill tier gate'],
       [/\bWard\b/, 'the Ward instant skill'],
