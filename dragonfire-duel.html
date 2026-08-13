@@ -356,6 +356,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
       <button class="subBtn" id="btnDenSkills">Skills</button>
       <button class="subBtn" id="btnDenStones">Stones</button>
       <button class="subBtn" id="btnDenAch">Achievements</button>
+      <button class="subBtn" id="btnDenBestiary" title="A compendium of every dragon species you've defeated in campaign">Bestiary</button>
       <button class="subBtn" id="btnDenTitle">Title</button>
     </div>
     <div class="rowBtns">
@@ -434,6 +435,13 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <p id="achCount" style="color:var(--mist)"></p>
     <div id="achRows"></div>
     <div class="rowBtns"><button class="bigBtn" id="btnAchClose" style="font-size:14px;padding:10px 26px">Close</button></div>
+  </div></div>
+
+  <div class="modal hidden" id="mBestiary"><div class="box">
+    <h2 style="color:var(--gold)">BESTIARY</h2>
+    <p id="bestCount" style="color:var(--mist)"></p>
+    <div id="bestRows"></div>
+    <div class="rowBtns"><button class="bigBtn" id="btnBestiaryClose" style="font-size:14px;padding:10px 26px">Close</button></div>
   </div></div>
 
   <div class="modal hidden" id="mTrial"><div class="box">
@@ -582,6 +590,9 @@ function unlockHint(key){
   const req=UNLOCK_REQS[key]; if(!req)return '';
   return 'Defeat '+req.alphaWins+' alpha bosses to unlock ('+(save.record.alphaWins||0)+'/'+req.alphaWins+').';
 }
+// Bestiary: a per-species kill tally (save.bestiary[dragonKey]=count), credited in victory()
+// off B.e.key. Purely a compendium — no reward, matching Career Record's shipped shape.
+function bestiaryDefeatedCount(){ return Object.keys(DRAGONS).filter(k=>(save.bestiary[k]||0)>0).length; }
 // Alpha bosses (every 5th stage) get a distinct title instead of a generic "Alpha <name>" tag,
 // and enrage once below ENRAGE_HP_PCT — see Dragon.enraged / dealDamage / aiThink.
 const ALPHA_TITLES={ember:'Cindermaw',frost:'Glacierfang',volt:'Stormcrown',terra:'Quakehide',dusk:'Nightgorge',venom:'Plaguewing',nyx:'Voidmaw'};
@@ -692,9 +703,10 @@ function newGamePlus(){
         keepSound=save.sound, keepPrestige=(save.prestige||0)+1;
   // A second carry-over alongside the flat stat bump: every reset also starts the fresh
   // run with a little more gold in the bank, stacking the same way the stat bonus does.
+  const keepBestiary=save.bestiary;
   save={v:1,dragonKey:keepKey,level:1,exp:0,gold:120+keepPrestige*PRESTIGE_GOLD_BONUS,stage:1,potions:{hp:1,mp:1},
     amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:keepSound,
-    record:keepRecord,skillPts:0,skillUpg:{},stones:blankStones(),achieved:keepAch,prestige:keepPrestige};
+    record:keepRecord,skillPts:0,skillUpg:{},stones:blankStones(),achieved:keepAch,prestige:keepPrestige,bestiary:keepBestiary};
   persist();
   return true;
 }
@@ -776,7 +788,7 @@ function triggerBiomeWeather(){
 
 /* ---------- persistent save ---------- */
 function blankRecord(){ return {wins:0,losses:0,alphaWins:0,bestStage:1,lifeGold:0,lifeExp:0,grades:{S:0,A:0,B:0,C:0}}; }
-let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0};
+let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0,bestiary:{}};
 const SAVE_KEY='dragonfire-duel-save';
 let storageOK=false;
 async function loadSave(){
@@ -797,7 +809,8 @@ async function loadSave(){
       if(!save.stones.inv)save.stones.inv={};
       if(!Array.isArray(save.stones.sockets)||save.stones.sockets.length!==STONE_SOCKETS)save.stones.sockets=[null,null,null];
       if(!save.achieved)save.achieved={};
-      if(typeof save.prestige!=='number')save.prestige=0;}}
+      if(typeof save.prestige!=='number')save.prestige=0;
+      if(!save.bestiary)save.bestiary={};}}
     storageOK=true;
   }catch(e){ storageOK=(typeof window.storage!=='undefined'); }
 }
@@ -806,7 +819,7 @@ function persist(){
   try{ window.storage.set(SAVE_KEY,JSON.stringify(save)).catch(()=>{}); }catch(e){}
 }
 async function wipeSave(){
-  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0};
+  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0,bestiary:{}};
   try{ await window.storage.delete(SAVE_KEY);}catch(e){}
 }
 
@@ -1873,6 +1886,7 @@ function victory(){
   save.exp+=exp; save.gold+=gold;
   save.record.wins++; save.record.lifeExp+=exp; save.record.lifeGold+=gold;
   save.record.grades[hg.grade]++;
+  save.bestiary[B.e.key]=(save.bestiary[B.e.key]||0)+1;
   if(alpha)save.record.alphaWins++;
   if(!offLadder)save.record.bestStage=Math.max(save.record.bestStage,B.stage);
   let ups=0; while(save.exp>=expNeed(save.level)){save.exp-=expNeed(save.level); save.level++; ups++;}
@@ -2320,6 +2334,21 @@ function refreshAch(){
 }
 $('btnDenAch').addEventListener('click',()=>{sfx.click(); refreshAch(); showModal('mAch');});
 $('btnAchClose').addEventListener('click',()=>{sfx.click(); hideModals();});
+function refreshBestiary(){
+  const keys=Object.keys(DRAGONS);
+  $('bestCount').textContent=bestiaryDefeatedCount()+'/'+keys.length+' species defeated';
+  const wrap=$('bestRows'); wrap.innerHTML='';
+  for(const k of keys){
+    const D=DRAGONS[k], n=save.bestiary[k]||0, seen=n>0;
+    const row=document.createElement('div'); row.className='shopRow';
+    row.style.opacity=seen?'1':'.55';
+    row.innerHTML='<div class="ic">'+(seen?(ELEMENT_ICON[D.el]||'🐉'):'❔')+'</div><div class="inf"><b>'+(seen?D.name:'???')+'</b><span>'+(seen?D.blurb:'Not yet defeated in campaign.')+'</span></div>'+
+      '<span style="color:'+(seen?'var(--gold)':'var(--mist)')+';font-size:12px;white-space:nowrap;padding:0 6px">'+(seen?(n+' defeated'):'Undefeated')+'</span>';
+    wrap.appendChild(row);
+  }
+}
+$('btnDenBestiary').addEventListener('click',()=>{sfx.click(); refreshBestiary(); showModal('mBestiary');});
+$('btnBestiaryClose').addEventListener('click',()=>{sfx.click(); hideModals();});
 function refreshTrial(){
   const wrap=$('trialRows'); wrap.innerHTML='';
   for(const key of Object.keys(TRIAL_MODS)){
@@ -2408,6 +2437,7 @@ function refreshDen(){
     '<span><b>'+rec.lifeGold+'g</b> earned</span>'+
     '<span title="Hunt grades earned">'+['S','A','B','C'].map(g=>'<b>'+rec.grades[g]+'</b>'+g).join(' ')+'</span>'+
     '<span title="Achievements earned">🏆 <b>'+ACHIEVEMENTS.filter(a=>save.achieved[a.id]).length+'</b>/'+ACHIEVEMENTS.length+'</span>'+
+    '<span title="Bestiary: species defeated in campaign">🐉 <b>'+bestiaryDefeatedCount()+'</b>/'+Object.keys(DRAGONS).length+'</span>'+
     (save.prestige?'<span title="New Game+ resets — each stacks +'+Math.round(PRESTIGE_STAT_PCT*100)+'% ATK/DEF/AGI/LUK and +'+PRESTIGE_GOLD_BONUS+' starting gold">♻ <b>'+save.prestige+'</b> NG+</span>':'');
   const canNG=canPrestige();
   $('btnDenPrestige').disabled=!canNG;

@@ -214,7 +214,8 @@ function loadGame() {
       SIG4_LEVEL, NIGHTWARD_REFLECT_PCT, NIGHTWARD_DRAIN_PCT,
       rollWind, forecastWindDisplay, WIND_MAX,
       ACHIEVEMENTS, checkAchievements, refreshAch, achRewardText,
-      canPrestige, newGamePlus, PRESTIGE_STAGE_REQ, PRESTIGE_STAT_PCT, PRESTIGE_GOLD_BONUS
+      canPrestige, newGamePlus, PRESTIGE_STAGE_REQ, PRESTIGE_STAT_PCT, PRESTIGE_GOLD_BONUS,
+      bestiaryDefeatedCount, refreshBestiary
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -2981,6 +2982,112 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(problems.length === 0, problems.join('; '));
     assert(sawTier1, 'the boss should have reached the first enrage tier during the live bot-vs-bot fight');
     assert(sawTier2, 'the boss should have reached the second enrage tier during the live bot-vs-bot fight');
+    clearTimers();
+  });
+
+  // -- TEST 32: bestiary — a per-species kill compendium, viewable in the Den ----
+  await test('bestiary: a campaign victory credits the defeated species, it persists through save/load, is visible in the Den, duel mode leaves it untouched, and the bot-vs-bot sim stays green', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 1; sv.exp = 0; sv.gold = 100; sv.stage = 1;
+
+    // -- a fresh save starts with an empty bestiary --
+    assert(sv.bestiary && Object.keys(sv.bestiary).length === 0, `a fresh save should have an empty bestiary (got ${JSON.stringify(sv.bestiary)})`);
+    assert(H.bestiaryDefeatedCount() === 0, `bestiaryDefeatedCount should read 0 on a fresh save (got ${H.bestiaryDefeatedCount()})`);
+
+    // -- a real campaign victory() credits the defeated species by its dragon key --
+    H.startBattle(1);
+    let B = H.B;
+    B.e = new H.Dragon('frost', B.e.level, true, H.SPAWN_E, false); // force a known species
+    B.turnNo = 3; B.p.hp = B.p.maxhp; B.e.hp = 0;
+    H.checkEnd();
+    assert(sv.bestiary.frost === 1, `defeating a frost enemy should credit save.bestiary.frost (got ${JSON.stringify(sv.bestiary)})`);
+    assert(H.bestiaryDefeatedCount() === 1, `exactly one species should read as defeated (got ${H.bestiaryDefeatedCount()})`);
+    clearTimers();
+
+    // -- winning again against the same species increments its count, not the distinct total --
+    sv.stage = 2;
+    H.startBattle(2);
+    B = H.B;
+    B.e = new H.Dragon('frost', B.e.level, true, H.SPAWN_E, false);
+    B.turnNo = 2; B.p.hp = B.p.maxhp; B.e.hp = 0;
+    H.checkEnd();
+    assert(sv.bestiary.frost === 2, `a second win over the same species should bump its count to 2 (got ${sv.bestiary.frost})`);
+    assert(H.bestiaryDefeatedCount() === 1, `beating the same species twice should still count as one distinct species (got ${H.bestiaryDefeatedCount()})`);
+    clearTimers();
+
+    // -- a different species is credited separately --
+    sv.stage = 3;
+    H.startBattle(3);
+    B = H.B;
+    B.e = new H.Dragon('terra', B.e.level, true, H.SPAWN_E, false);
+    B.turnNo = 2; B.p.hp = B.p.maxhp; B.e.hp = 0;
+    H.checkEnd();
+    assert(sv.bestiary.terra === 1, `defeating a terra enemy should credit save.bestiary.terra separately (got ${JSON.stringify(sv.bestiary)})`);
+    assert(H.bestiaryDefeatedCount() === 2, `two distinct species should now read as defeated (got ${H.bestiaryDefeatedCount()})`);
+    clearTimers();
+
+    // -- survives save then load --
+    await H.persist();
+    sv.bestiary = {};
+    await H.loadSave();
+    assert(H.save.bestiary.frost === 2 && H.save.bestiary.terra === 1, `the bestiary tally should survive save/load (got ${JSON.stringify(H.save.bestiary)})`);
+
+    // -- visible in the Den's Bestiary panel: every roster dragon renders a row, defeated ones show real names/counts --
+    H.refreshBestiary();
+    assert(H.$('bestRows').children.length === Object.keys(H.DRAGONS).length, `every roster dragon should render a row (got ${H.$('bestRows').children.length} rows for ${Object.keys(H.DRAGONS).length} dragons)`);
+    assert(/2\/\d+ species defeated/.test(H.$('bestCount').textContent), `bestCount should read like "2/N species defeated" (got "${H.$('bestCount').textContent}")`);
+    const frostRow = H.$('bestRows').children[Object.keys(H.DRAGONS).indexOf('frost')];
+    assert(frostRow.innerHTML.includes('Frost') && frostRow.innerHTML.includes('2 defeated'), `Frost's row should show its real name and a count of 2 (got "${frostRow.innerHTML}")`);
+    const emberRow = H.$('bestRows').children[Object.keys(H.DRAGONS).indexOf('ember')];
+    assert(emberRow.innerHTML.includes('???') && emberRow.innerHTML.includes('Undefeated'), `an unfaced species (ember, the player's own dragon here, never fought as an enemy) should render as undefeated (got "${emberRow.innerHTML}")`);
+
+    // -- duel mode never touches the campaign bestiary --
+    const beforeDuel = JSON.parse(JSON.stringify(sv.bestiary));
+    H.startDuel('volt', 'venom');
+    B = H.B;
+    B.turnNo = 2; B.p.hp = 0; B.e.hp = B.e.maxhp;
+    H.checkEnd();
+    assert(JSON.stringify(sv.bestiary) === JSON.stringify(beforeDuel), `duel mode should never modify the campaign bestiary (before ${JSON.stringify(beforeDuel)}, after ${JSON.stringify(sv.bestiary)})`);
+    clearTimers();
+
+    // -- New Game+ keeps the bestiary, matching the career record's own carry-over --
+    await H.wipeSave();
+    const sv2 = H.save;
+    sv2.dragonKey = 'ember'; sv2.bestiary = { frost: 5 }; sv2.record.bestStage = H.PRESTIGE_STAGE_REQ;
+    H.refreshDen();
+    H.newGamePlus();
+    assert(H.save.bestiary && H.save.bestiary.frost === 5, `New Game+ should keep the bestiary tally like the career record (got ${JSON.stringify(H.save.bestiary)})`);
+
+    // -- bot-vs-bot turn integrity holds through a battle that ends in a fresh bestiary credit --
+    await H.wipeSave();
+    const sv3 = H.save;
+    sv3.dragonKey = 'volt'; sv3.level = 8; sv3.exp = 0; sv3.stage = 1;
+    H.startBattle(1);
+    B = H.B;
+    const foeKey = B.e.key;
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `bestiary-credit battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 2, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    if (B.p.hp > 0) assert(sv3.bestiary[foeKey] === 1, `a live bot-vs-bot win should credit the real enemy species (${foeKey}) in the bestiary (got ${JSON.stringify(sv3.bestiary)})`);
     clearTimers();
   });
 
