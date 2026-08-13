@@ -1552,6 +1552,71 @@ choice) and leaves two more ideas queued behind it.*
     at very high stage numbers where terrain/obstacle layouts might differ more than in the
     stages exercised here.
 
+## Tier L — Sixth wave of polish (queue ran dry a sixth time)
+
+*Added 2026-08-13 — Tiers A–K are all shipped and the queue ran dry again. Same rules as
+always: read CLAUDE.md, topmost unchecked, one per run, treat every item as a direction not
+a spec.*
+
+- [x] **Bestiary — a compendium of foes defeated.** Every roster dragon (including the
+  hidden Nyx) can appear as a wild enemy, but nothing tracks which ones the player has
+  actually beaten across a career — the record row tallies wins/losses as raw counts, not
+  by species.
+  - *Intent:* the player can look back and see which dragons they've proven themselves
+    against and which they haven't — a Haypi-style compendium, giving campaign kills a
+    second axis of "collect" beyond gold/EXP.
+  - *Weigh:* per-species kill count vs a simple defeated/not-defeated flag; does Nyx show up
+    before it's unlockable (it can't have been fought yet, so it'll read as undefeated by
+    construction — no special-casing needed); any reward for full completion, or is the
+    compendium itself the reward (matching how Career Record shipped reward-free)?
+  - *Extend:* `save.record` (or a sibling `save.bestiary`, new field with a safe default),
+    `victory()` (already knows `B.e.key`), `DRAGONS`, the Den's record row / a new panel
+    alongside Achievements/Stones.
+  - *Shipped:* a new `save.bestiary` object (`{dragonKey: killCount}`, safe-defaulted to `{}`
+    in the initial save literal, `loadSave()`'s backfill, and `wipeSave()`) credited in
+    `victory()` right alongside the existing `save.record` tallies
+    (`save.bestiary[B.e.key]=(save.bestiary[B.e.key]||0)+1`) — a per-species kill count, not
+    a flat flag, per the Weigh question, since "how many times" reads as more rewarding than
+    a binary check once a species is re-fought on the ladder. A new Den → **Bestiary** panel
+    (`btnDenBestiary`, `#mBestiary`, `refreshBestiary()`, styled with the same `shopRow`
+    markup Achievements already uses) lists all 7 `DRAGONS` keys in roster order: a defeated
+    species reveals its real name, blurb, and kill count; an unfaced one (including Nyx,
+    before or after its own unlock — it simply hasn't been fought yet either way, no
+    special-casing needed, confirming the Weigh question's guess) renders as a grayed "???"
+    row, echoing the locked-card pattern the dragon-select screen already uses for Nyx. The
+    Den's record row also gained a compact `🐉 N/7` compendium-count span (mirroring the
+    existing `🏆 N/M` achievements span) so the total is visible without opening the panel.
+    Decided the tally is a career-lifetime fact like `save.record`/`save.achieved`, not a
+    ladder fact: it survives New Game+ resets (`newGamePlus()` now carries `save.bestiary`
+    forward the same way it already keeps `record`/`achieved`) and is untouched by duel mode
+    (`victory()` is only ever called from campaign; `duelEnd()` never touches it, so it needs
+    no gating). No reward attached — the compendium is the reward, matching how Career
+    Record shipped. While building this, caught and fixed a real bug the same class as the
+    gear/stones staleness fixes from earlier tiers: `newGamePlus()` builds its fresh save
+    object as a literal from scratch (unlike `loadSave()`'s merge-onto-defaults path), so the
+    new `bestiary` field wasn't being carried over until an explicit `keepBestiary` capture
+    was added alongside the existing `keepRecord`/`keepAch` captures — caught immediately by
+    the harness's New Game+ regression test throwing on the newly-undefined field, before it
+    ever reached a live save.
+  - *Done when:* defeating a species is visibly tracked and viewable from the Den, survives
+    save/load, and duel mode is untouched (it has no career save); harness asserts a
+    campaign victory credits the right species and the tally persists across save/load.
+    **Verified**: harness test 32 drives a real `victory()`/`checkEnd()` win to confirm the
+    right species is credited and a repeat win against the same species increments its count
+    without inflating the distinct-species total, that a second species is tracked
+    separately, that the tally round-trips through a real save/load, that `refreshBestiary()`
+    renders all 7 roster rows with defeated ones showing real names/counts and undefeated
+    ones showing "???", that a real duel-mode `checkEnd()` leaves `save.bestiary` completely
+    untouched, that a real `newGamePlus()` reset keeps a seeded bestiary tally intact, and
+    drives a full bot-vs-bot campaign battle to completion with strict turn alternation while
+    confirming a live win credits the real enemy species. `node harness.mjs` is 33/33 green.
+    Also confirmed live in Playwright/Chromium: seeded a save with `bestiary:{frost:3,
+    volt:1, terra:2}` through the real `window.storage` load path, opened the real Den
+    (`#btnContinue`) — the record row shows "🐉 3/7" — and the real Bestiary panel
+    (`#btnDenBestiary`) lists all 7 dragons, with Frost/Volt/Terra showing their real names,
+    blurbs, and "N defeated" counts, and the other four (including Nyx) showing grayed "???"
+    / "Not yet defeated in campaign." rows (screenshots taken, no console errors).
+
 ---
 
 *Standing concern, not a task:* difficulty / EXP / gold curve tuning is evaluated
