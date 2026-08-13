@@ -81,7 +81,8 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 #dock{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:flex-end;justify-content:space-between;gap:8px;
   padding:8px max(10px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left));
   pointer-events:none}
-#dock>*{pointer-events:auto}
+/* only the buttons themselves swallow input — gaps between them stay draggable field */
+#dock button{pointer-events:auto}
 .dockCol{display:flex;flex-direction:column;gap:6px;align-items:center}
 .dockRow{display:flex;gap:6px;align-items:flex-end}
 .lbl{font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--mist)}
@@ -215,6 +216,27 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
   #btnFire{width:74px;height:74px;font-size:14px}
   #aimCtl button,#moveCtl button{width:44px;height:44px}
   #windBox{top:calc(max(8px,env(safe-area-inset-top)) + 52px)}
+}
+/* short screens — phone landscape, where max-width:760px never fires */
+@media (max-height:540px){
+  #dock{padding:4px max(8px,env(safe-area-inset-right)) max(6px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left))}
+  #dock .lbl{display:none}
+  .dockCol,.dockRow{gap:4px}
+  #itemCtl{width:auto;flex-wrap:nowrap}
+  .itemBtn{width:38px;height:38px;font-size:15px;border-radius:10px}
+  #moveCtl button{width:42px;height:42px;font-size:18px}
+  #stamWrap{width:88px}
+  #btnFire{width:60px;height:60px;font-size:11px}
+  #aimCtl button{width:38px;height:38px;font-size:16px}
+  #aimRead{min-width:60px;padding:2px 6px}
+  #aimRead b{font-size:14px}
+  #skills{max-width:40vw;gap:4px}
+  .skill{width:50px;padding:4px 2px 3px}
+  .skill .ic{font-size:15px;line-height:16px}
+  .skill .nm{font-size:8px}
+  .skill .cost{font-size:8px}
+  .plate{width:min(170px,34vw);padding:4px 7px}
+  #windBox{transform:translateX(-50%) scale(.85);transform-origin:top center}
 }
 @media (prefers-reduced-motion:reduce){
   *{transition:none !important;animation:none !important}
@@ -2072,17 +2094,23 @@ function setOverview(on){
 }
 $('btnZoom').addEventListener('click',()=>{ if(B.mode==='battle'){sfx.click(); setOverview(!camOverview);} });
 
+// drag distance (CSS px) that means full power. Fixed 240 on roomy screens — which is
+// the historical len/2.4 — but on a phone that's most of the viewport, so scale it down.
+function pullLen(){ return clamp(Math.min(innerWidth,innerHeight)*0.38,120,240); }
+// how far from the dragon you may plant your finger to start a slingshot, in world units.
+// Touch needs a much wider pad: fingers are fat and the dragon is ~40px tall.
+function grabRadius(){ return matchMedia('(pointer:coarse)').matches?340:150; }
 function applyDragAim(){
   const d=input.drag, Lx=d.sx-d.cx, Ly=d.sy-d.cy, len=Math.hypot(Lx,Ly);
   if(len<6)return;
   if(Math.abs(Lx)>2)B.active.facing=Lx>0?1:-1;
   B.aim.ang=clamp(Math.atan2(-Ly,Math.abs(Lx))/D2R,3,88);
-  B.aim.pow=clamp(len/2.4,5,100);
+  B.aim.pow=clamp(len/pullLen()*100,5,100);
 }
 cvEl.addEventListener('pointerdown',e=>{
   if(!canAct()||B.aim.charging)return;
   const w=screenToWorld(e.clientX,e.clientY);
-  if(Math.hypot(w.x-B.active.x,w.y-(B.active.y-26))>150)return;
+  if(Math.hypot(w.x-B.active.x,w.y-(B.active.y-26))>grabRadius())return;
   const d=input.drag; d.on=true; d.sx=d.cx=e.clientX; d.sy=d.cy=e.clientY;
   cvEl.setPointerCapture(e.pointerId);
 });
