@@ -3091,6 +3091,81 @@ const flush = () => new Promise((r) => setImmediate(r));
     clearTimers();
   });
 
+  // -- TEST: hatch & name — a brand-new campaign gets a hatch-and-name beat, an existing
+  // save skips it, the custom name shows through Den/HUD/battle, and old saves without
+  // dragonName still load and fall back to the species name -----------------------------
+  await test('hatch & name: a new campaign hatches and names the dragon, Continue skips it, the name persists and shows through Den/battle, and legacy saves fall back to the species name', async () => {
+    clearTimers();
+    await H.wipeSave();
+    assert(H.save.dragonKey === null && H.save.dragonName === null, 'a wiped save should have no dragon and no name yet');
+
+    // -- picking a dragon and starting opens the hatch beat instead of battle right away --
+    H.buildCards();
+    let card = H.$('cards').children.find((c) => c.dataset.key === 'ember');
+    assert(card, 'the Ember card should render on a fresh save');
+    card.click();
+    H.$('btnStart').click();
+    assert(H.save.dragonKey === null, 'starting a brand-new campaign should not commit dragonKey before the hatch beat is confirmed');
+    assert(H.$('hatchBlurb').textContent.includes('Ember'), `the hatch beat should name the picked species (got "${H.$('hatchBlurb').textContent}")`);
+
+    // -- naming it and confirming commits the name, starts the battle, and the dragon carries it --
+    H.$('hatchNameInput').value = 'Sparky';
+    H.$('btnHatchConfirm').click();
+    assert(H.save.dragonKey === 'ember', 'confirming the hatch should commit the picked species');
+    assert(H.save.dragonName === 'Sparky', `confirming the hatch should commit the typed name (got "${H.save.dragonName}")`);
+    assert(H.B.mode === 'battle', 'confirming the hatch should launch the first battle');
+    assert(H.B.p.name === 'Sparky', `the player's dragon should carry the custom name in battle (got "${H.B.p.name}")`);
+    H.refreshDen();
+    assert(H.$('denName').textContent.includes('Sparky'), `the Den should show the custom name (got "${H.$('denName').textContent}")`);
+    clearTimers();
+
+    // -- an AI foe of the very same species is unaffected: it stays "Wild Ember", never "Sparky" --
+    const foe = new H.Dragon('ember', 1, true, H.SPAWN_E, false);
+    assert(foe.name === 'Wild Ember', `an AI dragon of the same species must not inherit the player's custom name (got "${foe.name}")`);
+
+    // -- leaving the name blank falls back to the species name, not an empty string --
+    await H.wipeSave();
+    H.buildCards();
+    card = H.$('cards').children.find((c) => c.dataset.key === 'frost');
+    card.click();
+    H.$('btnStart').click();
+    H.$('hatchNameInput').value = '   ';
+    H.$('btnHatchConfirm').click();
+    assert(H.save.dragonName === 'Frost', `a blank typed name should fall back to the species name (got "${H.save.dragonName}")`);
+    clearTimers();
+
+    // -- persists through save then load --
+    await H.persist();
+    H.save.dragonName = null;
+    await H.loadSave();
+    assert(H.save.dragonName === 'Frost', `the custom name should survive save then load (got "${H.save.dragonName}")`);
+
+    // -- Continue (an existing save) skips the hatch beat entirely: Start launches the battle
+    // immediately, with no hatch confirm needed --
+    H.buildCards();
+    card = H.$('cards').children.find((c) => c.dataset.key === 'frost');
+    card.click();
+    H.B.p = null;   // clear the previous battle's dragon so we can tell a fresh one was built
+    H.$('btnStart').click();
+    assert(H.B.p && H.B.p.key === 'frost', 'starting with an already-raised dragon should launch straight into battle, skipping the hatch beat');
+    clearTimers();
+
+    // -- a legacy save with no dragonName field at all still loads and shows the species name --
+    await H.wipeSave();
+    const legacy = { v: 1, dragonKey: 'volt', level: 5, exp: 0, gold: 200, stage: 4,
+      potions: { hp: 1, mp: 1 }, amps: { calm: 0, surge: 0, scope: 0 },
+      gear: { fang: 0, scale: 0, charm: 0, talon: 0, ward: 0 }, sound: false,
+      record: H.blankRecord(), skillPts: 0, skillUpg: {}, stones: H.blankStones(),
+      achieved: {}, prestige: 0, bestiary: {} };   // note: no dragonName key at all
+    store.set('dragonfire-duel-save', JSON.stringify(legacy));
+    await H.loadSave();
+    assert(H.save.dragonKey === 'volt', 'the legacy save should still load its dragonKey');
+    assert(!H.save.dragonName, `a legacy save with no dragonName field should default it to a falsy value (got ${JSON.stringify(H.save.dragonName)})`);
+    H.B.modeType = 'campaign';
+    const dLegacy = new H.Dragon('volt', 1, false, H.SPAWN_P);
+    assert(dLegacy.name === 'Volt', `a dragon with no custom name should display its species name (got "${dLegacy.name}")`);
+  });
+
   /* ---- report ---- */
   console.log('\nDragonfire Duel — test harness\n' + '-'.repeat(48));
   let failed = 0;

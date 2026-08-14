@@ -452,6 +452,20 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <div class="rowBtns"><button class="bigBtn" id="btnTrialClose" style="font-size:14px;padding:10px 26px">Close</button></div>
   </div></div>
 
+  <div class="modal hidden" id="mHatch"><div class="box">
+    <h2>AN EGG STIRS</h2>
+    <div id="hatchOrb" style="width:88px;height:88px;border-radius:50%;margin:12px auto;border:3px solid rgba(255,255,255,.35);box-shadow:inset -6px -8px 14px rgba(0,0,0,.45),0 0 20px rgba(0,0,0,.4)"></div>
+    <div id="hatchBlurb" style="text-align:center;font-size:13px;color:var(--mist);margin-bottom:12px"></div>
+    <div style="text-align:center;margin:6px 0 14px">
+      <input id="hatchNameInput" type="text" maxlength="16" placeholder="Name your dragon"
+        style="font-family:var(--disp);font-size:16px;padding:9px 14px;border-radius:8px;border:1px solid rgba(255,255,255,.3);background:rgba(0,0,0,.3);color:var(--bone);text-align:center;width:min(240px,80vw)">
+    </div>
+    <div class="rowBtns">
+      <button class="bigBtn primary" id="btnHatchConfirm">Hatch &amp; Begin</button>
+      <button class="bigBtn" id="btnHatchBack">Back</button>
+    </div>
+  </div></div>
+
   <div class="modal hidden" id="mHelp"><div class="box">
     <h2>FIELD GUIDE</h2>
     <div class="helpBody">
@@ -699,12 +713,12 @@ const PRESTIGE_STAGE_REQ=10, PRESTIGE_STAT_PCT=0.03, PRESTIGE_GOLD_BONUS=40;
 function canPrestige(){ return (save.record.bestStage||1)>=PRESTIGE_STAGE_REQ; }
 function newGamePlus(){
   if(!canPrestige())return false;
-  const keepKey=save.dragonKey, keepRecord=save.record, keepAch=save.achieved,
+  const keepKey=save.dragonKey, keepName=save.dragonName, keepRecord=save.record, keepAch=save.achieved,
         keepSound=save.sound, keepPrestige=(save.prestige||0)+1;
   // A second carry-over alongside the flat stat bump: every reset also starts the fresh
   // run with a little more gold in the bank, stacking the same way the stat bonus does.
   const keepBestiary=save.bestiary;
-  save={v:1,dragonKey:keepKey,level:1,exp:0,gold:120+keepPrestige*PRESTIGE_GOLD_BONUS,stage:1,potions:{hp:1,mp:1},
+  save={v:1,dragonKey:keepKey,dragonName:keepName,level:1,exp:0,gold:120+keepPrestige*PRESTIGE_GOLD_BONUS,stage:1,potions:{hp:1,mp:1},
     amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:keepSound,
     record:keepRecord,skillPts:0,skillUpg:{},stones:blankStones(),achieved:keepAch,prestige:keepPrestige,bestiary:keepBestiary};
   persist();
@@ -788,7 +802,7 @@ function triggerBiomeWeather(){
 
 /* ---------- persistent save ---------- */
 function blankRecord(){ return {wins:0,losses:0,alphaWins:0,bestStage:1,lifeGold:0,lifeExp:0,grades:{S:0,A:0,B:0,C:0}}; }
-let save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0,bestiary:{}};
+let save={v:1,dragonKey:null,dragonName:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0,bestiary:{}};
 const SAVE_KEY='dragonfire-duel-save';
 let storageOK=false;
 async function loadSave(){
@@ -819,7 +833,7 @@ function persist(){
   try{ window.storage.set(SAVE_KEY,JSON.stringify(save)).catch(()=>{}); }catch(e){}
 }
 async function wipeSave(){
-  save={v:1,dragonKey:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0,bestiary:{}};
+  save={v:1,dragonKey:null,dragonName:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0,bestiary:{}};
   try{ await window.storage.delete(SAVE_KEY);}catch(e){}
 }
 
@@ -1187,7 +1201,8 @@ class Dragon{
     }
     this.maxstam=90+this.agi; this.stamina=this.maxstam;
     this.enraged=false; this.enraged2=false;
-    this.name=alpha?(ALPHA_TITLES[key]||('Alpha '+D.name)):((isAI?'Wild ':'')+D.name);
+    const ownName=(!isAI&&B.modeType==='campaign'&&key===save.dragonKey&&save.dragonName)?save.dragonName:D.name;
+    this.name=alpha?(ALPHA_TITLES[key]||('Alpha '+D.name)):((isAI?'Wild ':'')+ownName);
     this.col=D.col; this.col2=D.col2; this.belly=D.belly;
     this.x=x; this.y=groundAt(x); this.vy=0; this.air=false; this.fallFrom=0;
     this.facing=1;
@@ -2420,7 +2435,7 @@ function refreshDen(){
   if(!save.dragonKey)return;
   const D=DRAGONS[save.dragonKey];
   $('denOrb').style.background='radial-gradient(circle at 32% 28%,'+D.belly+','+D.col+' 55%,'+D.col2+')';
-  $('denName').textContent=D.name;
+  $('denName').textContent=save.dragonName?(save.dragonName+' the '+D.name):D.name;
   $('denLvl').textContent='Level '+save.level+' · '+D.el+(save.prestige?' · NG+'+save.prestige:'');
   const need=expNeed(save.level);
   $('denExpFill').style.width=Math.round(clamp(save.exp/need,0,1)*100)+'%';
@@ -2545,9 +2560,31 @@ $('btnStart').addEventListener('click',()=>{
     if(!confirm('Switch dragons? Level, EXP and stage reset — gold, potions and gear are kept.'))return;
     save.level=1; save.exp=0; save.stage=1;
   }
+  // Brand-new career (no dragon raised yet): a short hatch-and-name beat before the first
+  // battle. An existing save (Continue, or switching species mid-run) skips straight past it.
+  if(!save.dragonKey){ openHatch(pickedKey); return; }
   save.dragonKey=pickedKey; persist();
   startBattle(save.stage);
 });
+function openHatch(key){
+  const D=DRAGONS[key];
+  $('hatchOrb').style.background='radial-gradient(circle at 32% 28%,'+D.belly+','+D.col+' 55%,'+D.col2+')';
+  $('hatchBlurb').textContent='A '+D.el+' egg cracks open — your '+D.name+' blinks up at you. What will you call it?';
+  $('hatchNameInput').value='';
+  showModal('mHatch');
+  setTimeout(()=>$('hatchNameInput').focus(),50);
+}
+function confirmHatch(){
+  sfx.click();
+  const typed=$('hatchNameInput').value.trim();
+  save.dragonName=(typed||DRAGONS[pickedKey].name).slice(0,16);
+  save.dragonKey=pickedKey; persist();
+  hideModals();
+  startBattle(save.stage);
+}
+$('btnHatchConfirm').addEventListener('click',confirmHatch);
+$('hatchNameInput').addEventListener('keydown',e=>{ if(e.key==='Enter')confirmHatch(); });
+$('btnHatchBack').addEventListener('click',()=>{ sfx.click(); hideModals(); });
 $('btnContinue').addEventListener('click',()=>{sfx.click(); goDen();});
 $('btnReset').addEventListener('click',async()=>{
   if(!confirm('Erase the entire save?'))return;

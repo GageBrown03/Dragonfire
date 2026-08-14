@@ -72,7 +72,7 @@ stage ladder, deep gear/skill progression). This wave goes back for the things t
 Haypi Dragon feel like *Haypi Dragon* to play — always single-player, always your one
 dragon against AI, never a matchmaking system.
 
-- [ ] **Hatch & name your dragon.** Starting a career is currently picking a card off a
+- [x] **Hatch & name your dragon.** Starting a career is currently picking a card off a
   stat-comparison grid. Haypi opened with hatching an egg and naming what came out of it.
   - *Intent:* starting a new run feels like an origin moment for *your* dragon, not a
     spec-sheet comparison — and the dragon carries a name you gave it for the rest of the
