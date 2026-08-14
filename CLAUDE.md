@@ -55,6 +55,16 @@ clones. The current demo is the **seed and the source of truth** for what alread
 build the vision around it, never replace it. The exact ordered plan lives in
 **`TODO.md`**.
 
+The north star is nostalgia for **the original Haypi Dragon**, minus the parts that don't
+fit here: one player, one raised dragon, growing it up through a world of AI fights — not
+a matchmaking arena. **Never add PvP, matchmaking, leaderboards, or any networked/online
+system.** Hotseat duel mode is the closest thing to PvP this game has, and it stays local,
+frozen, and out of scope for new work (§1). When `TODO.md` runs dry, the next items should
+come from Haypi's single-player identity — the den, the dragon, the world, the things it
+carries — not from re-slicing an already-shipped system into another "round N" or "second
+tier" of itself. That pattern shipped several waves in a row before this file was cleared
+for exactly that reason; treat it as a last resort, not a default move.
+
 ---
 
 ## 2. Engineering constraints (firm — encode them in everything you do)
