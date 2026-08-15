@@ -345,6 +345,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <div id="denRecord" class="recordRow"></div>
     <div id="denGear" class="recordRow"></div>
     <div id="denStones" class="recordRow"></div>
+    <div id="denCompanion" style="font-size:12.5px;color:var(--mist)"></div>
     <div id="denSkillPts" style="font-size:12px;color:var(--gold);min-height:14px"></div>
     <div class="rowBtns">
       <button class="bigBtn primary" id="btnDenNext" style="font-size:16px;padding:12px 30px">Next Battle ▶</button>
@@ -410,6 +411,8 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <div class="shopRow"><div class="ic">🔭</div><div class="inf"><b>Scope</b><span>Reveals the exact wind for the opponent's next turn. Doesn't end your turn. Max 2.</span></div><button id="buyScope">140g</button></div>
     <div class="shopHead">Gear — permanent (campaign)</div>
     <div id="gearRows"></div>
+    <div class="shopHead">Companion — one passive ally (campaign)</div>
+    <div id="companionRows"></div>
     <div class="rowBtns"><button class="bigBtn" id="btnShopClose" style="font-size:14px;padding:10px 26px">Close</button></div>
   </div></div>
 
@@ -666,6 +669,17 @@ const GEAR={
   ward: {ic:'🔰', name:'Aegis Ward', stat:'elemWard', lbl:'E.WARD', vals:[0,10,20,35], cost:[220,480,850]}
 };
 
+/* ---------- companion ---------- */
+// A single passive-ally slot alongside gear/stones — bought like gear, but with no
+// tiers or inventory of its own: owning a new companion just replaces the equipped one.
+// Each grants one flat, distinct passive, resolved onto the Dragon the same way GEAR
+// is (player dragon, campaign only), so it needs no new stat-resolution seam.
+const COMPANIONS={
+  sprite:{ic:'🧚', name:'Whelp Sprite', stat:'agi',      val:5,    desc:'+5 AGI, passively.', cost:180},
+  turtle:{ic:'🐢', name:'Stone Turtle', stat:'fallCut',  val:0.3,  desc:'-30% fall damage taken.', cost:180},
+  hare:  {ic:'🐇', name:'Moon Hare',    stat:'turnHeal', val:0.03, desc:'Heals 3% max HP at the start of your turn.', cost:220}
+};
+
 /* ---------- magic stones ---------- */
 // A second, luck-flavored track distinct from gear: gear is flat stat adds bought with
 // gold; stones are percent ATK bonuses that drop from victories and get socketed. A
@@ -720,7 +734,7 @@ function newGamePlus(){
   const keepBestiary=save.bestiary;
   save={v:1,dragonKey:keepKey,dragonName:keepName,level:1,exp:0,gold:120+keepPrestige*PRESTIGE_GOLD_BONUS,stage:1,potions:{hp:1,mp:1},
     amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:keepSound,
-    record:keepRecord,skillPts:0,skillUpg:{},stones:blankStones(),achieved:keepAch,prestige:keepPrestige,bestiary:keepBestiary};
+    record:keepRecord,skillPts:0,skillUpg:{},stones:blankStones(),achieved:keepAch,prestige:keepPrestige,bestiary:keepBestiary,companion:null};
   persist();
   return true;
 }
@@ -802,7 +816,7 @@ function triggerBiomeWeather(){
 
 /* ---------- persistent save ---------- */
 function blankRecord(){ return {wins:0,losses:0,alphaWins:0,bestStage:1,lifeGold:0,lifeExp:0,grades:{S:0,A:0,B:0,C:0}}; }
-let save={v:1,dragonKey:null,dragonName:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0,bestiary:{}};
+let save={v:1,dragonKey:null,dragonName:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0,bestiary:{},companion:null};
 const SAVE_KEY='dragonfire-duel-save';
 let storageOK=false;
 async function loadSave(){
@@ -824,7 +838,8 @@ async function loadSave(){
       if(!Array.isArray(save.stones.sockets)||save.stones.sockets.length!==STONE_SOCKETS)save.stones.sockets=[null,null,null];
       if(!save.achieved)save.achieved={};
       if(typeof save.prestige!=='number')save.prestige=0;
-      if(!save.bestiary)save.bestiary={};}}
+      if(!save.bestiary)save.bestiary={};
+      if(typeof save.companion==='undefined')save.companion=null;}}
     storageOK=true;
   }catch(e){ storageOK=(typeof window.storage!=='undefined'); }
 }
@@ -833,7 +848,7 @@ function persist(){
   try{ window.storage.set(SAVE_KEY,JSON.stringify(save)).catch(()=>{}); }catch(e){}
 }
 async function wipeSave(){
-  save={v:1,dragonKey:null,dragonName:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0,bestiary:{}};
+  save={v:1,dragonKey:null,dragonName:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0,bestiary:{},companion:null};
   try{ await window.storage.delete(SAVE_KEY);}catch(e){}
 }
 
@@ -1187,13 +1202,19 @@ class Dragon{
     this.maxmp=st.mp; this.mp=this.maxmp;
     this.atk=Math.round(st.atk*handicap*(alpha?1.12:1));
     this.def=Math.round(st.def*handicap); this.agi=st.agi; this.luk=st.luk;
-    this.elemWard=0;
+    this.elemWard=0; this.fallCut=0; this.turnHealPct=0;
     if(!isAI&&B.modeType==='campaign'){
       this.atk+=GEAR.fang.vals[save.gear.fang||0];
       this.def+=GEAR.scale.vals[save.gear.scale||0];
       this.agi+=GEAR.charm.vals[save.gear.charm||0];
       this.luk+=GEAR.talon.vals[save.gear.talon||0];
       this.elemWard=GEAR.ward.vals[save.gear.ward||0];
+      const comp=save.companion?COMPANIONS[save.companion]:null;
+      if(comp){
+        if(comp.stat==='agi')this.agi+=comp.val;
+        else if(comp.stat==='fallCut')this.fallCut=comp.val;
+        else if(comp.stat==='turnHeal')this.turnHealPct=comp.val;
+      }
       // New Game+: each reset permanently stacks a small % bump on top of gear.
       const pMult=1+(save.prestige||0)*PRESTIGE_STAT_PCT;
       this.atk=Math.round(this.atk*pMult); this.def=Math.round(this.def*pMult);
@@ -1223,7 +1244,7 @@ class Dragon{
   land(){
     this.air=false; const fall=this.y-this.fallFrom; this.vy=0;
     if(fall>140 && !this.dead){
-      const dmg=Math.round((fall-140)*0.12);
+      const dmg=Math.round((fall-140)*0.12*(1-(this.fallCut||0)));
       if(dmg>0){ this.hp=Math.max(0,this.hp-dmg); floatTxt(this.x,this.y-70,'-'+dmg+' fall','#ffb24d'); sfx.fall(); this.hurtT=.3;
         burst(this.x,this.y,'#caa27a',10,2.4,{up:1.5,glow:false}); }
     } else if(fall>30){ burst(this.x,this.y,'#caa27a',6,1.8,{up:1,glow:false}); }
@@ -1557,6 +1578,11 @@ function startTurn(d){
     z.turns--; if(z.turns<=0)B.zones.splice(i,1);
   }
   if(checkEnd())return;
+  if(d.turnHealPct>0&&!d.dead&&d.hp<d.maxhp&&!(B.trial&&B.trial.mod==='noheal')){
+    const amt=Math.max(1,Math.round(d.maxhp*d.turnHealPct));
+    d.hp=Math.min(d.maxhp,d.hp+amt);
+    floatTxt(d.x,d.y-96,'+'+amt+' companion','#8fe3ff');
+  }
   d.mp=Math.min(d.maxmp,d.mp+14);
   camFocus(d.x,d.y-110);
   if(!d.isAI){
@@ -2255,6 +2281,24 @@ function refreshShop(){
     });
     row.appendChild(btn); wrap.appendChild(row);
   }
+  const cWrap=$('companionRows'); cWrap.innerHTML='';
+  for(const k of Object.keys(COMPANIONS)){
+    const c=COMPANIONS[k], active=save.companion===k;
+    const row=document.createElement('div'); row.className='shopRow';
+    row.innerHTML='<div class="ic">'+c.ic+'</div><div class="inf"><b>'+c.name+'</b><span>'+c.desc+(active?' — equipped':'')+'</span></div>';
+    const btn=document.createElement('button');
+    btn.textContent=active?'Equipped':(c.cost+'g');
+    btn.disabled=active||save.gold<c.cost;
+    btn.addEventListener('click',()=>{
+      if(buyCompanion(k)){ sfx.heal(); announce(c.name+' joins your loadout!'); refreshShop(); }
+    });
+    row.appendChild(btn); cWrap.appendChild(row);
+  }
+}
+function buyCompanion(key){
+  const c=COMPANIONS[key];
+  if(!c||save.companion===key||save.gold<c.cost)return false;
+  save.gold-=c.cost; save.companion=key; persist(); return true;
 }
 function buyPotion(kind,cost){
   if(save.potions[kind]>=3||save.gold<cost)return;
@@ -2465,6 +2509,9 @@ function refreshDen(){
   }).join('');
   $('denStones').innerHTML=save.stones.sockets.map((s,i)=>
     '<span>'+(s?stoneLabel(s.el,s.tier):'Slot '+(i+1)+': empty')+'</span>').join('');
+  $('denCompanion').textContent=save.companion?
+    ('Companion: '+COMPANIONS[save.companion].ic+' '+COMPANIONS[save.companion].name+' — '+COMPANIONS[save.companion].desc):
+    'Companion: none — visit the Shop';
   $('denSkillPts').textContent=save.skillPts>0?(save.skillPts+' skill point'+(save.skillPts>1?'s':'')+' to spend'):'';
 }
 function goDen(){

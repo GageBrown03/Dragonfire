@@ -215,7 +215,8 @@ function loadGame() {
       rollWind, forecastWindDisplay, WIND_MAX,
       ACHIEVEMENTS, checkAchievements, refreshAch, achRewardText,
       canPrestige, newGamePlus, PRESTIGE_STAGE_REQ, PRESTIGE_STAT_PCT, PRESTIGE_GOLD_BONUS,
-      bestiaryDefeatedCount, refreshBestiary
+      bestiaryDefeatedCount, refreshBestiary,
+      COMPANIONS, buyCompanion
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -3164,6 +3165,130 @@ const flush = () => new Promise((r) => setImmediate(r));
     H.B.modeType = 'campaign';
     const dLegacy = new H.Dragon('volt', 1, false, H.SPAWN_P);
     assert(dLegacy.name === 'Volt', `a dragon with no custom name should display its species name (got "${dLegacy.name}")`);
+  });
+
+  // -- TEST 35: a companion — one passive ally slot alongside gear/stones --------------
+  await test('a companion is obtainable, visible in the Den, measurably changes a resolved battle stat/outcome, and persists', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 1; sv.stage = 1; sv.gold = 5000;
+    H.B.modeType = 'campaign';
+
+    assert(H.COMPANIONS && Object.keys(H.COMPANIONS).length >= 3,
+      'COMPANIONS should define at least three distinct passive companions');
+    const kinds = new Set(Object.values(H.COMPANIONS).map((c) => c.stat));
+    assert(kinds.size === Object.keys(H.COMPANIONS).length, 'each companion should grant a distinct passive stat');
+
+    // -- unequipped: no companion resolves onto the dragon --
+    const dNone = new H.Dragon('ember', 1, false, 300);
+    assert(dNone.fallCut === 0 && dNone.turnHealPct === 0, 'an unequipped dragon should resolve zero companion bonuses');
+
+    // -- Whelp Sprite: a flat AGI nudge, resolved like a gear line --
+    sv.companion = 'sprite';
+    const dSprite = new H.Dragon('ember', 1, false, 300);
+    assert(dSprite.agi === dNone.agi + H.COMPANIONS.sprite.val,
+      `Whelp Sprite should raise resolved agi by ${H.COMPANIONS.sprite.val} (got ${dSprite.agi - dNone.agi})`);
+
+    // -- Stone Turtle: reduced fall damage, exercised through the real land() path --
+    const plainFall = new H.Dragon('ember', 1, false, 300);   // built before 'turtle' is equipped, so it stays a true baseline
+    sv.companion = 'turtle';
+    const dTurtle = new H.Dragon('ember', 1, false, 300);
+    assert(dTurtle.fallCut === H.COMPANIONS.turtle.val, 'Stone Turtle should resolve its fallCut value onto the dragon');
+    plainFall.fallFrom = plainFall.y - 300; plainFall.y = plainFall.fallFrom + 300; plainFall.land();
+    const hpLostPlain = plainFall.maxhp - plainFall.hp;
+    dTurtle.fallFrom = dTurtle.y - 300; dTurtle.y = dTurtle.fallFrom + 300; dTurtle.land();
+    const hpLostTurtle = dTurtle.maxhp - dTurtle.hp;
+    assert(hpLostPlain > 0 && hpLostTurtle < hpLostPlain,
+      `a Stone Turtle companion should reduce fall damage (plain lost ${hpLostPlain}, turtle lost ${hpLostTurtle})`);
+
+    // -- Moon Hare: heals a slice of max HP at the start of the player's turn, without ending it --
+    sv.companion = 'hare';
+    sv.stage = 1; sv.exp = 0;
+    H.startBattle(1);
+    const B = H.B;
+    B.p.hp = Math.max(1, Math.round(B.p.maxhp * 0.5));
+    const hpBefore = B.p.hp;
+    assert(B.p.turnHealPct === H.COMPANIONS.hare.val, 'the battle player dragon should resolve the Moon Hare turnHealPct');
+    H.startTurn(B.p);
+    const expectedHeal = Math.max(1, Math.round(B.p.maxhp * H.COMPANIONS.hare.val));
+    assert(B.p.hp === Math.min(B.p.maxhp, hpBefore + expectedHeal),
+      `Moon Hare should heal ${expectedHeal} HP at the start of the player's turn (before ${hpBefore}, after ${B.p.hp})`);
+    assert(B.state === 'aim', 'the companion heal-per-turn must not end or skip the turn (state should stay "aim")');
+    clearTimers();
+
+    // -- playable/visible: drive the real Den -> Shop -> buy -> close flow, not a reimplementation --
+    sv.companion = null; sv.gold = 5000; sv.record = H.blankRecord();
+    H.refreshDen();
+    document.getElementById('btnDenShop').click();
+    const companionRows = document.getElementById('companionRows');
+    assert(companionRows.children.length === Object.keys(H.COMPANIONS).length,
+      'shop should list one row per companion');
+    const spriteRow = companionRows.children.find((r) => r.innerHTML.includes('Whelp Sprite'));
+    assert(spriteRow, 'the shop should show a Whelp Sprite row');
+    const spriteCost = H.COMPANIONS.sprite.cost;
+    spriteRow.children[0].click();
+    assert(sv.companion === 'sprite', `buying via the shop UI should equip the companion (got ${sv.companion})`);
+    assert(sv.gold === 5000 - spriteCost, `buying via the shop UI should spend its cost (got ${sv.gold})`);
+    document.getElementById('btnShopClose').click();
+    const denCompanion = document.getElementById('denCompanion');
+    assert(denCompanion.textContent.includes('Whelp Sprite'), `Den loadout should show the equipped companion (got ${denCompanion.textContent})`);
+
+    // -- a single slot: buying a different companion replaces the equipped one --
+    document.getElementById('btnDenShop').click();
+    const companionRows2 = document.getElementById('companionRows');
+    const turtleRow = companionRows2.children.find((r) => r.innerHTML.includes('Stone Turtle'));
+    const turtleCost = H.COMPANIONS.turtle.cost;
+    const goldBeforeSwap = sv.gold;
+    turtleRow.children[0].click();
+    assert(sv.companion === 'turtle', `equipping a different companion should replace the old one (got ${sv.companion})`);
+    assert(sv.gold === goldBeforeSwap - turtleCost, 'swapping companions should spend the new one\'s cost');
+    document.getElementById('btnShopClose').click();
+
+    // -- persistence --
+    H.persist();
+    sv.companion = null; sv.gold = -1;
+    await H.loadSave();
+    assert(sv.companion === 'turtle', `equipped companion should survive save then load (got ${sv.companion})`);
+    assert(sv.gold === goldBeforeSwap - turtleCost, `gold should survive load (got ${sv.gold})`);
+
+    // -- a legacy save with no companion field at all still loads with none equipped --
+    await H.wipeSave();   // clean baseline: companion already null before the legacy load
+    const legacy = { v: 1, dragonKey: 'ember', level: 1, exp: 0, gold: 100, stage: 1,
+      potions: { hp: 1, mp: 1 }, amps: { calm: 0, surge: 0, scope: 0 },
+      gear: { fang: 0, scale: 0, charm: 0, talon: 0, ward: 0 }, sound: false,
+      record: H.blankRecord(), skillPts: 0, skillUpg: {}, stones: H.blankStones(),
+      achieved: {}, prestige: 0, bestiary: {} };   // note: no companion key at all
+    store.set('dragonfire-duel-save', JSON.stringify(legacy));
+    await H.loadSave();
+    assert(!H.save.companion, `a legacy save with no companion field should default it to a falsy value (got ${JSON.stringify(H.save.companion)})`);
+
+    // -- bot-vs-bot turn integrity holds with the heal-per-turn companion equipped --
+    clearTimers();
+    H.save.dragonKey = 'ember'; H.save.level = 3; H.save.stage = 2; H.save.exp = 0; H.save.companion = 'hare';
+    H.startBattle(2);
+    const B2 = H.B;
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B2.state !== 'over'; i++) {
+      tick(16);
+      if (B2.mode === 'battle' && B2.state === 'aim' && B2.active && !B2.active.isAI && !B2.active.dead) {
+        const foe = H.other(B2.active);
+        const sol = H.aiSolve ? H.aiSolve(B2.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B2.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B2.turnNo > lastTurn) {
+        if (B2.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B2.turnNo - lastTurn} near turn ${B2.turnNo} (double-advance?)`);
+        const side = B2.active === B2.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B2.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B2.turnNo; turnsSeen++;
+      }
+    }
+    assert(B2.state === 'over', `companion battle did not finish within ${BUDGET} frames (stuck in state "${B2.state}")`);
+    assert(turnsSeen >= 2, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    clearTimers();
   });
 
   /* ---- report ---- */

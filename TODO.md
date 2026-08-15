@@ -90,7 +90,7 @@ dragon against AI, never a matchmaking system.
     Add a harness assertion covering save/load of the name and that a fresh campaign still
     produces a valid, playable save with the added step.
 
-- [ ] **A companion — one passive ally.** Haypi paired your dragon with a pet that gave it
+- [x] **A companion — one passive ally.** Haypi paired your dragon with a pet that gave it
   a small edge. Give the player one companion slot alongside gear and stones — not a new
   inventory system, just one more lever.
   - *Intent:* a companion feels like a small, visible part of the dragon's loadout, earned
