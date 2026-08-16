@@ -107,7 +107,7 @@ dragon against AI, never a matchmaking system.
     resolved battle stat or outcome; persists through save/load. Add a harness assertion
     covering the resolved-stat change and save/load persistence.
 
-- [ ] **Named world regions.** The ladder today is a bare stage counter plus a biome name.
+- [x] **Named world regions.** The ladder today is a bare stage counter plus a biome name.
   Haypi's world was a map of named places you moved through.
   - *Intent:* the player feels like they're crossing a world with places in it, not
     climbing a numbered staircase.
@@ -119,6 +119,17 @@ dragon against AI, never a matchmaking system.
   - *Done when:* the player sees a named region while progressing that's consistent with
     `save.stage`; add a harness assertion that the displayed/derived region agrees with
     stage/biome across the ladder.
+  - *Shipped:* an 8-entry `WORLD_REGIONS` pool, grouped in `REGION_SPAN`-stage (5) blocks
+    aligned with the existing alpha-every-5 cadence, so each region has its own local boss.
+    `regionForStage(stage)` is the pure lookup (cycles back to region 0 once the pool is
+    exhausted, so a deep NG+ ladder never breaks); `isRegionEntry(stage)` flags a block's
+    first stage. Shown as a gold line above the stage readout in the Den (`denRegion`,
+    wired in `refreshDen`), folded into each ladder node's tooltip (`ladderWindow`), and
+    bannered in the victory modal (`vRegion`) only when a win crosses a region boundary on
+    the real ladder — side hunts/trials never trigger it since they don't advance
+    `save.stage`. Verified by a new harness test (36/36 green). Uncertain: region names are
+    flavor-only and don't currently gate anything (no per-region mechanics), which matches
+    "signposting, not a system" from the intent above.
 
 - [ ] **Growth stages — your dragon visibly matures.** Haypi dragons visibly grew up as
   they leveled; today the same art represents level 1 and a fully-grown level 40 alike.

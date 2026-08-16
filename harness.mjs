@@ -216,7 +216,8 @@ function loadGame() {
       ACHIEVEMENTS, checkAchievements, refreshAch, achRewardText,
       canPrestige, newGamePlus, PRESTIGE_STAGE_REQ, PRESTIGE_STAT_PCT, PRESTIGE_GOLD_BONUS,
       bestiaryDefeatedCount, refreshBestiary,
-      COMPANIONS, buyCompanion
+      COMPANIONS, buyCompanion,
+      WORLD_REGIONS, REGION_SPAN, regionForStage, regionIndex, isRegionEntry
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -3288,6 +3289,73 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(B2.state === 'over', `companion battle did not finish within ${BUDGET} frames (stuck in state "${B2.state}")`);
     assert(turnsSeen >= 2, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
+    clearTimers();
+  });
+
+  // -- TEST 36: named world regions — signposting over the existing stage/biome ladder ----
+  await test('named world regions: derived consistently from stage, shown in the Den/ladder, and banner on first entry to a new one', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+
+    // -- pure lookup: a region spans REGION_SPAN stages and agrees with save.stage --
+    assert(Array.isArray(H.WORLD_REGIONS) && H.WORLD_REGIONS.length >= 4, 'WORLD_REGIONS should define several named regions');
+    assert(H.WORLD_REGIONS.every((r) => r.name && r.blurb), 'every region should carry a name and a flavor blurb');
+    const span = H.REGION_SPAN;
+    for (let n = 1; n <= span; n++) {
+      assert(H.regionForStage(n).idx === 0, `stage ${n} should fall in region 0 (span ${span})`);
+    }
+    assert(H.regionForStage(span + 1).idx === 1, `stage ${span + 1} should start region 1`);
+    assert(H.regionForStage(span + 1).name !== H.regionForStage(1).name, 'crossing a region boundary should change the region name');
+    // region index wraps once the named pool is exhausted, never throwing on a deep NG+ ladder
+    const farStage = span * H.WORLD_REGIONS.length + 3;
+    const farRegion = H.regionForStage(farStage);
+    assert(farRegion.name === H.WORLD_REGIONS[0].name, `region pool should cycle back to the first region past its end (stage ${farStage} got "${farRegion.name}")`);
+
+    // -- isRegionEntry: true exactly at each region's first stage --
+    assert(H.isRegionEntry(1) === true, 'stage 1 should be a region entry');
+    for (let n = 2; n <= span; n++) assert(H.isRegionEntry(n) === false, `stage ${n} should not be a region entry`);
+    assert(H.isRegionEntry(span + 1) === true, `stage ${span + 1} should be a region entry`);
+
+    // -- visible in the Den: refreshDen renders the current region's name --
+    sv.dragonKey = 'ember'; sv.level = 1; sv.stage = 1; sv.gold = 0;
+    H.refreshDen();
+    assert(H.$('denRegion').textContent === H.regionForStage(1).name, `Den should show the current region (got "${H.$('denRegion').textContent}")`);
+
+    // -- visible on the ladder: each node's tooltip carries its own region name --
+    const nodes = H.ladderWindow(1);
+    const boundaryNode = nodes.find((nd) => nd.n === span + 1);
+    assert(boundaryNode && boundaryNode.region === H.regionForStage(span + 1).name, 'a ladder node past the first region boundary should carry the new region name');
+
+    // -- crossing into a new region on victory shows a banner; staying inside one does not --
+    sv.dragonKey = 'ember'; sv.level = 1; sv.exp = 0; sv.gold = 100; sv.stage = span; // about to clear the last stage of region 0
+    H.startBattle(span);
+    let B = H.B;
+    B.turnNo = 2; B.p.hp = B.p.maxhp; B.e.hp = 0;
+    H.checkEnd();
+    assert(B.state === 'over', 'battle ended when the enemy fell');
+    assert(sv.stage === span + 1, `victory should advance the ladder into the next region (got stage ${sv.stage})`);
+    const enteredRegion = H.regionForStage(sv.stage);
+    assert(H.$('vRegion').textContent.includes(enteredRegion.name), `crossing a region boundary should banner the new region's name (got "${H.$('vRegion').textContent}")`);
+
+    if (span > 2) {
+      sv.dragonKey = 'ember'; sv.level = 1; sv.exp = 0; sv.gold = 100; sv.stage = 2; // mid-region, not a boundary
+      H.startBattle(2);
+      B = H.B;
+      B.turnNo = 2; B.p.hp = B.p.maxhp; B.e.hp = 0;
+      H.checkEnd();
+      assert(sv.stage === 3, `victory should advance one stage (got ${sv.stage})`);
+      assert(H.$('vRegion').textContent === '', `staying inside a region should not show the entry banner (got "${H.$('vRegion').textContent}")`);
+    }
+
+    // -- a side hunt never advances the ladder, so it must never trigger a region-entry banner --
+    sv.stage = span; sv.gold = 100;
+    H.startSideHunt();
+    B = H.B;
+    B.turnNo = 2; B.p.hp = B.p.maxhp; B.e.hp = 0;
+    H.checkEnd();
+    assert(sv.stage === span, 'a side hunt win should leave save.stage unchanged');
+    assert(H.$('vRegion').textContent === '', `an off-ladder win must not banner a region entry (got "${H.$('vRegion').textContent}")`);
     clearTimers();
   });
 

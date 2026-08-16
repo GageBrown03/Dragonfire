@@ -339,6 +339,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <div style="width:min(360px,86vw)">
       <div class="meter"><span class="lbl">EXP</span><div class="trk"><div class="vl" id="denExpFill" style="width:0%"></div></div></div>
     </div>
+    <div id="denRegion" style="font-family:var(--disp);font-size:14.5px;color:var(--gold);letter-spacing:.04em;text-align:center;margin-top:4px"></div>
     <div id="denStage" style="font-size:13.5px;color:var(--mist);letter-spacing:.05em;text-align:center"></div>
     <div id="denLadder" class="ladder"></div>
     <div id="denGold" style="font-size:13.5px;color:var(--gold)"></div>
@@ -369,6 +370,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
   <div class="modal hidden" id="mVictory"><div class="box">
     <h2 class="win">VICTORY</h2>
     <p id="vSub">The wild dragon retreats.</p>
+    <p id="vRegion" style="color:var(--gold);font-family:var(--disp);letter-spacing:.03em"></p>
     <div class="gain" id="vExp">+0 EXP</div>
     <div class="gain" id="vGold">+0 Gold</div>
     <p class="grade" id="vGrade"></p>
@@ -775,6 +777,28 @@ const BIOMES={
     obst:'rock', amb:null, pillars:0, gap:true}
 };
 const BIOME_ORDER=['meadow','cinder','tundra','chasm'];
+
+// Named world regions: pure signposting over the existing stage/biome ladder, not a change
+// to it. A region spans REGION_SPAN stages — aligned with the existing alpha-every-5 cadence,
+// so each region has its own local boss. Cycles once the pool is exhausted (NG+ can run the
+// ladder past it indefinitely).
+const WORLD_REGIONS=[
+  {name:'Vale of First Light', blurb:'Rolling grass and quiet foothills, where every journey begins.'},
+  {name:'The Cinder Marches', blurb:'Ash drifts over blackened stone; the wastes remember old fires.'},
+  {name:'Frostspire Reach', blurb:'Wind-carved ice and thin air push every flyer to the limit.'},
+  {name:'The Sundered Rift', blurb:'A jagged wound in the world, still tearing wider.'},
+  {name:'Ember Hollow', blurb:'Cinder and shadow tangle together at the edge of the map.'},
+  {name:'The Glacial Crown', blurb:'Ancient ice, older than any dragon now flying.'},
+  {name:'Duskmarch', blurb:'Twilight never quite lifts from this stretch of the world.'},
+  {name:'The Farlands', blurb:'Uncharted ground; few dragons have flown this far.'}
+];
+const REGION_SPAN=5;
+function regionIndex(stage){return Math.floor((stage-1)/REGION_SPAN);}
+function regionForStage(stage){
+  const idx=regionIndex(stage), r=WORLD_REGIONS[idx%WORLD_REGIONS.length];
+  return {idx, name:r.name, blurb:r.blurb, from:idx*REGION_SPAN+1, to:idx*REGION_SPAN+REGION_SPAN};
+}
+function isRegionEntry(stage){return stage>=1&&(stage-1)%REGION_SPAN===0;}
 
 // Biome-linked weather: one telegraphed hook per hazardous biome, on a fixed turn cadence
 // alongside the wind (deterministic, not a random roll, so it can be learned and planned
@@ -1934,6 +1958,8 @@ function victory(){
   save.skillPts+=ups;
   if(alpha)save.skillPts+=1; // trophy bonus for felling an alpha, on top of any level-up points
   if(!offLadder)save.stage=B.stage+1;
+  let regionMsg='';
+  if(!offLadder&&isRegionEntry(save.stage)){const reg=regionForStage(save.stage); regionMsg='Entering '+reg.name+' — '+reg.blurb;}
   // Magic stones: drop from victories, better odds/tiers from alphas; an off-ladder win's
   // reduced-reward rule applies here too (chance scales by rewardScale).
   let stoneMsg='';
@@ -1948,6 +1974,7 @@ function victory(){
   $('vGrade').textContent='Hunt Grade '+hg.grade+' — '+hg.note+(hg.bonus>0?' (+'+Math.round(hg.bonus*100)+'% bonus applied)':'');
   $('vGrade').className='grade grade-'+hg.grade;
   $('vStone').textContent=stoneMsg;
+  $('vRegion').textContent=regionMsg;
   $('vAch').textContent=newAch.length?newAch.map(a=>a.ic+' Achievement: '+a.name+' ('+achRewardText(a.reward)+')').join(' · '):'';
   let lvTxt=ups?('LEVEL UP! Now level '+save.level+' — stats raised, +'+ups+' skill point'+(ups>1?'s':'')+' to spend in the Den.'):'';
   if(ups&&save.level>=4&&save.level-ups<4)lvTxt+=' Second signature skill unlocked!';
@@ -2460,6 +2487,7 @@ function ladderWindow(stage,back=3,fwd=8){
   for(let n=lo;n<=hi;n++){
     const biomeKey=BIOME_ORDER[(n-1)%BIOME_ORDER.length];
     out.push({n, biomeKey, biomeName:BIOMES[biomeKey].name, alpha:n%5===0,
+      region:regionForStage(n).name,
       state:n<stage?'cleared':(n===stage?'current':'future')});
   }
   return out;
@@ -2469,7 +2497,7 @@ function buildLadder(){
   ladderWindow(save.stage).forEach(node=>{
     const el=document.createElement('div');
     el.className='ladderNode '+node.state+(node.alpha?' alpha':'');
-    el.title='Stage '+node.n+' · '+node.biomeName+(node.alpha?' · Alpha boss':'');
+    el.title='Stage '+node.n+' · '+node.biomeName+' · '+node.region+(node.alpha?' · Alpha boss':'');
     el.innerHTML='<span class="n">'+node.n+'</span><span class="biomeDot" style="background:'+
       BIOMES[node.biomeKey].cap+'"></span>'+(node.alpha?'<span class="star">★</span>':'');
     wrap.appendChild(el);
@@ -2484,6 +2512,9 @@ function refreshDen(){
   const need=expNeed(save.level);
   $('denExpFill').style.width=Math.round(clamp(save.exp/need,0,1)*100)+'%';
   const biomeKey=BIOME_ORDER[(save.stage-1)%BIOME_ORDER.length];
+  const reg=regionForStage(save.stage);
+  $('denRegion').textContent=reg.name;
+  $('denRegion').title=reg.blurb;
   $('denStage').textContent='Stage '+save.stage+' · '+BIOMES[biomeKey].name+(save.stage%5===0?' ★ Alpha ahead':'');
   buildLadder();
   $('denGold').textContent=save.gold+'g';
