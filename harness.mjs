@@ -217,7 +217,8 @@ function loadGame() {
       canPrestige, newGamePlus, PRESTIGE_STAGE_REQ, PRESTIGE_STAT_PCT, PRESTIGE_GOLD_BONUS,
       bestiaryDefeatedCount, refreshBestiary,
       COMPANIONS, buyCompanion,
-      WORLD_REGIONS, REGION_SPAN, regionForStage, regionIndex, isRegionEntry
+      WORLD_REGIONS, REGION_SPAN, regionForStage, regionIndex, isRegionEntry,
+      GROWTH_STAGES, growthStageAt
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -3356,6 +3357,61 @@ const flush = () => new Promise((r) => setImmediate(r));
     H.checkEnd();
     assert(sv.stage === span, 'a side hunt win should leave save.stage unchanged');
     assert(H.$('vRegion').textContent === '', `an off-ladder win must not banner a region entry (got "${H.$('vRegion').textContent}")`);
+    clearTimers();
+  });
+
+  // -- TEST 37: growth stages — the dragon visibly matures at level milestones ----
+  await test('growth stages: the lookup returns the expected stage at boundary levels, is visible in the Den (orb size + label), and battle draws use the scaled dragon without breaking the sim', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+
+    // -- pure lookup: boundary levels resolve to the expected stage, monotonically increasing --
+    assert(Array.isArray(H.GROWTH_STAGES) && H.GROWTH_STAGES.length === 4, 'expect 4 discrete growth stages');
+    const bounds = [
+      [1, 'Hatchling'], [3, 'Hatchling'],
+      [4, 'Juvenile'], [9, 'Juvenile'],
+      [10, 'Adult'], [17, 'Adult'],
+      [18, 'Elder'], [40, 'Elder'],
+    ];
+    for (const [lvl, name] of bounds) {
+      assert(H.growthStageAt(lvl).name === name, `level ${lvl} should be ${name}, got ${H.growthStageAt(lvl).name}`);
+    }
+    for (let i = 1; i < H.GROWTH_STAGES.length; i++) {
+      assert(H.GROWTH_STAGES[i].scale > H.GROWTH_STAGES[i - 1].scale, 'each later growth stage should scale strictly larger than the one before it');
+    }
+
+    // -- visible in the Den: the orb resizes and the level label names the stage --
+    sv.dragonKey = 'ember'; sv.dragonName = null; sv.level = 1; sv.stage = 1; sv.gold = 0;
+    H.refreshDen();
+    const hatchlingOrbPx = parseInt(H.$('denOrb').style.width, 10);
+    assert(H.$('denLvl').textContent.includes('Hatchling'), `Den level line should name the growth stage (got "${H.$('denLvl').textContent}")`);
+    sv.level = 20;
+    H.refreshDen();
+    const elderOrbPx = parseInt(H.$('denOrb').style.width, 10);
+    assert(H.$('denLvl').textContent.includes('Elder'), `Den level line should update to Elder at level 20 (got "${H.$('denLvl').textContent}")`);
+    assert(elderOrbPx > hatchlingOrbPx, `an Elder's Den orb (${elderOrbPx}px) should render larger than a Hatchling's (${hatchlingOrbPx}px)`);
+
+    // -- battle: a leveled dragon draws (no-op canvas) and the bot-vs-bot sim stays green --
+    sv.level = 20; sv.exp = 0; sv.gold = 100; sv.stage = 1;
+    H.startBattle(1);
+    let B = H.B;
+    assert(H.growthStageAt(B.p.level).name === 'Elder', 'the battle dragon instance should carry the leveled-up growth stage');
+    const noopCtx = { save(){}, restore(){}, translate(){}, scale(){}, rotate(){}, beginPath(){}, moveTo(){}, lineTo(){},
+      quadraticCurveTo(){}, closePath(){}, fill(){}, stroke(){}, ellipse(){}, arc(){}, roundRect(){}, rect(){}, fillRect(){},
+      fillText(){}, set fillStyle(v){}, set strokeStyle(v){}, set lineWidth(v){}, set lineCap(v){}, set globalAlpha(v){}, set font(v){}, set textAlign(v){} };
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.p && !B.p.dead) B.p.draw(noopCtx); // exercise the scaled draw path directly on the grown dragon
+      if (B.e && !B.e.dead) B.e.draw(noopCtx);
+    }
+    assert(B.state === 'over', `a bot-vs-bot battle with a grown dragon should still terminate normally (stuck in "${B.state}")`);
     clearTimers();
   });
 

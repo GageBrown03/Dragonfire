@@ -659,6 +659,22 @@ const statsAt=(key,lvl)=>{const D=DRAGONS[key],b=D.base,g=D.grow,n=lvl-1;return{
   agi:Math.round(b.agi+g.agi*n), luk:Math.round(b.luk+g.luk*n), mp:100+lvl*4 };};
 const expNeed=l=>50+l*40;
 
+// Growth stages: cosmetic-only size/proportion milestones so leveling reads as the
+// dragon physically maturing, not just a stat sheet changing under the same art.
+// Thresholds are spaced to land near the existing signature-skill gates (lvl 4, UNIQ3_LEVEL,
+// SIG4_LEVEL) so a stage change lines up with a real power milestone.
+const GROWTH_STAGES=[
+  {name:'Hatchling', min:1,  scale:0.74},
+  {name:'Juvenile',  min:4,  scale:0.89},
+  {name:'Adult',     min:10, scale:1.04},
+  {name:'Elder',     min:18, scale:1.18},
+];
+const growthStageAt=lvl=>{
+  let s=GROWTH_STAGES[0];
+  for(const g of GROWTH_STAGES) if(lvl>=g.min) s=g;
+  return s;
+};
+
 /* ---------- gear ---------- */
 const GEAR={
   fang: {ic:'🗡', name:'Drake Fang', stat:'atk', lbl:'ATK', vals:[0,6,12,20], cost:[200,450,800]},
@@ -1287,11 +1303,12 @@ class Dragon{
   }
   draw(ctx){
     if(this.dead && this.hurtT<=0) return;
-    const g=groundAt(this.x);
+    const g=groundAt(this.x), gs=growthStageAt(this.level).scale;
     ctx.fillStyle='rgba(0,0,0,0.3)';
-    ctx.beginPath(); ctx.ellipse(this.x,g+4,26*clamp(1-(g-this.y)/300,0.3,1),7,0,0,TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(this.x,g+4,26*gs*clamp(1-(g-this.y)/300,0.3,1),7,0,0,TAU); ctx.fill();
     ctx.save(); ctx.translate(this.x,this.y); ctx.scale(this.facing,1);
     if(this.hurtT>0) ctx.translate(rand(-2,2),rand(-1,1));
+    ctx.scale(gs,gs);
     const br=1+Math.sin(this.flap*0.7)*0.02; ctx.scale(br,1/br);
     const C=this.col, C2=this.col2;
     ctx.strokeStyle=C2; ctx.lineWidth=9; ctx.lineCap='round';
@@ -2507,8 +2524,10 @@ function refreshDen(){
   if(!save.dragonKey)return;
   const D=DRAGONS[save.dragonKey];
   $('denOrb').style.background='radial-gradient(circle at 32% 28%,'+D.belly+','+D.col+' 55%,'+D.col2+')';
+  const gStage=growthStageAt(save.level), orbPx=Math.round(74*gStage.scale);
+  $('denOrb').style.width=orbPx+'px'; $('denOrb').style.height=orbPx+'px';
   $('denName').textContent=save.dragonName?(save.dragonName+' the '+D.name):D.name;
-  $('denLvl').textContent='Level '+save.level+' · '+D.el+(save.prestige?' · NG+'+save.prestige:'');
+  $('denLvl').textContent='Level '+save.level+' · '+D.el+' · '+gStage.name+(save.prestige?' · NG+'+save.prestige:'');
   const need=expNeed(save.level);
   $('denExpFill').style.width=Math.round(clamp(save.exp/need,0,1)*100)+'%';
   const biomeKey=BIOME_ORDER[(save.stage-1)%BIOME_ORDER.length];
