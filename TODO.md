@@ -131,7 +131,7 @@ dragon against AI, never a matchmaking system.
     flavor-only and don't currently gate anything (no per-region mechanics), which matches
     "signposting, not a system" from the intent above.
 
-- [ ] **Growth stages — your dragon visibly matures.** Haypi dragons visibly grew up as
+- [x] **Growth stages — your dragon visibly matures.** Haypi dragons visibly grew up as
   they leveled; today the same art represents level 1 and a fully-grown level 40 alike.
   - *Intent:* leveling up reads as your dragon growing, not just a stat sheet changing
     underneath the same picture.
@@ -145,6 +145,18 @@ dragon against AI, never a matchmaking system.
   - *Done when:* the dragon's appearance visibly changes at level milestones in both the Den
     and battle; add a harness assertion that the growth-stage lookup returns the expected
     stage at boundary levels.
+  - *Shipped:* a 4-stage `GROWTH_STAGES` table (Hatchling/Juvenile/Adult/Elder, thresholds at
+    levels 1/4/10/18 — spaced near the existing signature-skill gates so a stage change lines
+    up with a real power milestone) with a pure `growthStageAt(level)` lookup. Applied as a
+    uniform `ctx.scale` in `Dragon.draw()` (and the ground-shadow radius) so a grown dragon is
+    visibly larger in battle with no new art; the Den orb (`denOrb`) resizes to match and
+    `denLvl` now names the stage next to the level/element line. Verified by a new harness
+    test (37/37 green): boundary-level lookups, strictly-increasing scale per stage, Den DOM
+    (orb px + label) at Hatchling vs. Elder, and a full bot-vs-bot sim with a level-20 (Elder)
+    player dragon drawing every frame without breaking turn integrity. Also spot-checked live
+    in a headless browser (level-1 Hatchling renders cleanly, no distortion). Uncertain: the
+    scale range (0.74–1.18) is a judgment call with no reference art to match; icons above the
+    dragon's head don't scale with it (kept simple, low-visibility tradeoff).
 
 - [ ] **Sparring — a no-stakes practice battle.** Haypi's training grounds let you test
   your dragon without risking your run. This item exists partly to make the "no PvP"
