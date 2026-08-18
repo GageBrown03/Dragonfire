@@ -354,6 +354,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <div class="rowBtns">
       <button class="subBtn" id="btnDenSide" title="An off-ladder practice fight at your own stage/level — reduced rewards, stage unchanged">Side Hunt</button>
       <button class="subBtn" id="btnDenTrial" title="An off-ladder fight at your own stage/level with one active constraint — bigger rewards, stage unchanged">Trial</button>
+      <button class="subBtn" id="btnDenSpar" title="A no-stakes practice fight against a leveled AI partner — try a loadout with nothing gained or lost">Spar</button>
       <button class="subBtn" id="btnDenShop">Shop</button>
       <button class="subBtn" id="btnDenSkills">Skills</button>
       <button class="subBtn" id="btnDenStones">Stones</button>
@@ -495,7 +496,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
       <div class="sec">Alpha bosses</div>
       Every 5th stage is an <b>alpha</b> — a named boss with a tougher fight. Past 40% HP it <b>enrages</b>, hitting harder and fighting more aggressively, and triggers its own signature hazard: Cindermaw scorches the ground, Glacierfang raises an ice wall, Quakehide cracks open a crater, Stormcrown's bolt strikes a second point, Nightgorge blinks behind you, Plaguewing's cloud lingers. Fought down past 15% HP it enrages a second time (💢), hitting and aiming even more dangerously. Felling one always pays a bonus skill point.
       <div class="sec">Beyond the ladder</div>
-      Every win is graded <b>S/A/B/C</b> by how fast and clean the hunt was, for an EXP/gold bonus. From the Den you can also launch a <b>Side Hunt</b> (an off-ladder practice fight for reduced rewards) or a <b>Trial</b> (an off-ladder fight with a constraint — No Healing, Windstorm, or Halved Stamina — that pays better than a Side Hunt). Milestones quietly pay out as <b>Achievements</b>, tracked in their own Den panel. Once you've reached stage 10, <b>New Game+</b> resets your ladder run for a small permanent stat bonus plus extra starting gold each time, keeping your career record intact.
+      Every win is graded <b>S/A/B/C</b> by how fast and clean the hunt was, for an EXP/gold bonus. From the Den you can also launch a <b>Side Hunt</b> (an off-ladder practice fight for reduced rewards), a <b>Trial</b> (an off-ladder fight with a constraint — No Healing, Windstorm, or Halved Stamina — that pays better than a Side Hunt), or <b>Spar</b> against a leveled AI partner — a fully no-stakes fight that pays nothing and never touches your stage, gold, EXP, or record, for trying a new loadout risk-free. Milestones quietly pay out as <b>Achievements</b>, tracked in their own Den panel. Once you've reached stage 10, <b>New Game+</b> resets your ladder run for a small permanent stat bonus plus extra starting gold each time, keeping your career record intact.
     </div>
     <div class="rowBtns"><button class="bigBtn" id="btnHelpClose" style="font-size:14px;padding:10px 26px">Close</button></div>
   </div></div>
@@ -1442,7 +1443,7 @@ class Proj{
 /* =====================================================================
    BATTLE STATE
    ===================================================================== */
-const B={mode:'title',modeType:'campaign',state:'idle',stage:1,side:false,trial:null,p:null,e:null,active:null,wind:0,
+const B={mode:'title',modeType:'campaign',state:'idle',stage:1,side:false,trial:null,spar:false,p:null,e:null,active:null,wind:0,
   aim:{ang:45,pow:0,charging:false,skill:'shot'},
   queue:[],projs:[],zones:[],usedItem:{hp:false,mp:false,calm:false,surge:false,scope:false},ampSurge:false,aiPlan:null,turnNo:0,hinted:false,duelKeys:null,windForecast:[]};
 const other=d=>d===B.p?B.e:B.p;
@@ -1481,7 +1482,7 @@ function enterBattleUI(tagText){
   hideModals();
 }
 function startBattle(stage){
-  B.mode='battle'; B.modeType='campaign'; B.side=false; B.trial=null; B.stage=stage; B.state='idle';
+  B.mode='battle'; B.modeType='campaign'; B.side=false; B.trial=null; B.spar=false; B.stage=stage; B.state='idle';
   const biomeKey=BIOME_ORDER[(stage-1)%BIOME_ORDER.length];
   setupField(biomeKey,stage);
   B.p=new Dragon(save.dragonKey,save.level,false,SPAWN_P);
@@ -1507,7 +1508,7 @@ const SIDE_HUNT_MULT=0.5;
 function startSideHunt(){
   if(!save.dragonKey)return;
   const stage=Math.max(1,save.stage);
-  B.mode='battle'; B.modeType='campaign'; B.side=true; B.trial=null; B.stage=stage; B.state='idle';
+  B.mode='battle'; B.modeType='campaign'; B.side=true; B.trial=null; B.spar=false; B.stage=stage; B.state='idle';
   const biomeKey=BIOME_ORDER[(stage-1)%BIOME_ORDER.length];
   setupField(biomeKey,stage);
   B.p=new Dragon(save.dragonKey,save.level,false,SPAWN_P);
@@ -1537,7 +1538,7 @@ const TRIAL_MODS={
 function startTrial(modKey){
   if(!save.dragonKey||!TRIAL_MODS[modKey])return;
   const stage=Math.max(1,save.stage);
-  B.mode='battle'; B.modeType='campaign'; B.side=false; B.trial={mod:modKey}; B.stage=stage; B.state='idle';
+  B.mode='battle'; B.modeType='campaign'; B.side=false; B.trial={mod:modKey}; B.spar=false; B.stage=stage; B.state='idle';
   const biomeKey=BIOME_ORDER[(stage-1)%BIOME_ORDER.length];
   setupField(biomeKey,stage);
   B.p=new Dragon(save.dragonKey,save.level,false,SPAWN_P);
@@ -1559,8 +1560,32 @@ function startTrial(modKey){
   if(curBiome.gap)setTimeout(()=>announce('A chasm splits the field — arc your shots, or risk the fall.'),1350);
   setTimeout(()=>announce('Trial: '+mod.name+' — '+mod.desc+' Bigger rewards; the ladder stays put.'),1700);
 }
+// Sparring: a fully no-stakes practice fight against a leveled AI partner, for trying a
+// loadout/skill/companion change with nothing on the line. Unlike side hunts/trials it
+// pays nothing and touches no save field at all — victory() and defeat() short-circuit on
+// B.spar before any save mutation.
+function startSpar(){
+  if(!save.dragonKey)return;
+  const stage=Math.max(1,save.stage);
+  B.mode='battle'; B.modeType='campaign'; B.side=false; B.trial=null; B.spar=true; B.stage=stage; B.state='idle';
+  const biomeKey=BIOME_ORDER[(stage-1)%BIOME_ORDER.length];
+  setupField(biomeKey,stage);
+  B.p=new Dragon(save.dragonKey,save.level,false,SPAWN_P);
+  const keys=Object.keys(DRAGONS).filter(isDragonUnlocked);
+  B.e=new Dragon(keys[randi(0,keys.length-1)],Math.max(1,save.level),true,SPAWN_E,false);
+  B.e.facing=-1;
+  B.aim.ang=45; B.aim.pow=0; B.aim.charging=false; B.aim.skill='shot';
+  $('itemCtl').style.display='flex';
+  rollWind();
+  enterBattleUI('Sparring · '+curBiome.name);
+  camSnap(B.p.x,B.p.y-120);
+  setTimeout(()=>startTurn(B.p),700);
+  announceMatchup(1000);
+  if(curBiome.gap)setTimeout(()=>announce('A chasm splits the field — arc your shots, or risk the fall.'),1350);
+  setTimeout(()=>announce('Sparring — no-stakes practice. Nothing gained or lost either way.'),1700);
+}
 function startDuel(k1,k2){
-  B.mode='battle'; B.modeType='duel'; B.stage=0; B.side=false; B.trial=null; B.state='idle'; B.duelKeys=[k1,k2];
+  B.mode='battle'; B.modeType='duel'; B.stage=0; B.side=false; B.trial=null; B.spar=false; B.state='idle'; B.duelKeys=[k1,k2];
   const biomeKey=BIOME_ORDER[randi(0,BIOME_ORDER.length-1)];
   setupField(biomeKey,4);
   B.p=new Dragon(k1,6,false,SPAWN_P);
@@ -1960,6 +1985,14 @@ function checkAchievements(){
 }
 function victory(){
   B.state='over'; deathFX(B.e); sfx.win();
+  if(B.spar){
+    $('vExp').textContent=''; $('vGold').textContent='';
+    $('vGrade').textContent=''; $('vGrade').className='grade';
+    $('vStone').textContent=''; $('vRegion').textContent=''; $('vAch').textContent=''; $('vLvl').textContent='';
+    $('vSub').textContent=B.e.name+' driven off — sparring match complete, nothing gained or lost.';
+    setTimeout(()=>showModal('mVictory'),1000);
+    return;
+  }
   const alpha=B.e.alpha, side=B.side, trial=!!B.trial, offLadder=side||trial;
   const hg=huntGrade(B.turnNo,B.p.hp/B.p.maxhp);
   const rewardScale=trial?TRIAL_MULT:(side?SIDE_HUNT_MULT:1);
@@ -2004,7 +2037,8 @@ function victory(){
   setTimeout(()=>showModal('mVictory'),1000);
 }
 function defeat(){
-  B.state='over'; deathFX(B.p); sfx.lose(); save.record.losses++; persist();
+  B.state='over'; deathFX(B.p); sfx.lose();
+  if(!B.spar){ save.record.losses++; persist(); }
   setTimeout(()=>showModal('mDefeat'),1000);
 }
 function duelEnd(w,l){
@@ -2467,6 +2501,7 @@ $('btnDenTrial').addEventListener('click',()=>{sfx.click(); refreshTrial(); show
 $('btnTrialClose').addEventListener('click',()=>{sfx.click(); hideModals();});
 $('btnDenNext').addEventListener('click',()=>{sfx.click(); startBattle(save.stage);});
 $('btnDenSide').addEventListener('click',()=>{sfx.click(); startSideHunt();});
+$('btnDenSpar').addEventListener('click',()=>{sfx.click(); startSpar();});
 $('btnDenPrestige').addEventListener('click',()=>{
   if(!canPrestige())return;
   sfx.click();
@@ -2478,7 +2513,7 @@ $('btnDenPrestige').addEventListener('click',()=>{
 $('btnDenTitle').addEventListener('click',()=>{sfx.click(); goTitle();});
 $('btnShopClose').addEventListener('click',()=>{sfx.click(); if(shopReturn==='den')refreshDen(); shopReturn==='mVictory'?showModal('mVictory'):hideModals();});
 $('btnNext').addEventListener('click',()=>{sfx.click(); goDen();});
-$('btnRetry').addEventListener('click',()=>{sfx.click(); B.trial?startTrial(B.trial.mod):(B.side?startSideHunt():startBattle(B.stage));});
+$('btnRetry').addEventListener('click',()=>{sfx.click(); B.spar?startSpar():(B.trial?startTrial(B.trial.mod):(B.side?startSideHunt():startBattle(B.stage)));});
 $('btnQuit').addEventListener('click',()=>{sfx.click(); goTitle();});
 $('btnRematch').addEventListener('click',()=>{sfx.click(); startDuel(B.duelKeys[0],B.duelKeys[1]);});
 $('btnDuelQuit').addEventListener('click',()=>{sfx.click(); goTitle();});
