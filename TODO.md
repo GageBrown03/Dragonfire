@@ -158,7 +158,7 @@ dragon against AI, never a matchmaking system.
     scale range (0.74–1.18) is a judgment call with no reference art to match; icons above the
     dragon's head don't scale with it (kept simple, low-visibility tradeoff).
 
-- [ ] **Sparring — a no-stakes practice battle.** Haypi's training grounds let you test
+- [x] **Sparring — a no-stakes practice battle.** Haypi's training grounds let you test
   your dragon without risking your run. This item exists partly to make the "no PvP"
   boundary concrete: it's practice against an AI-controlled partner, never another player.
   - *Intent:* the player can try a loadout, a newly upgraded skill, or a new companion/gear
@@ -172,3 +172,19 @@ dragon against AI, never a matchmaking system.
   - *Done when:* a sparring match is launchable and completes normally (turn integrity
     intact) without altering campaign save state. Add a harness assertion that `save` is
     unchanged (aside from RNG-independent fields) after a sparring win or loss.
+  - *Shipped:* a new `B.spar` flag and `startSpar()` (sibling of `startSideHunt`/`startTrial`,
+    same off-ladder setup shape: player's real dragon at the save's level/gear/companion/
+    stones vs. a random AI opponent leveled to match, at the player's current stage/biome).
+    Launched from a new **Spar** button in the Den's button row. `victory()` and `defeat()`
+    both short-circuit on `B.spar` before touching any save field — no exp/gold, no
+    `save.record` wins/losses, no bestiary credit, no stone drop, no `persist()` call — and
+    show a distinct "nothing gained or lost" victory line with the reward fields left blank.
+    Retry after a sparring loss relaunches a spar rather than falling through to the ladder
+    battle. Verified by a new harness test (38/38 green): launching via the real Den button,
+    a win and a loss each asserted with a byte-for-byte `JSON.stringify(save)` equality
+    check (stricter than "aside from RNG-independent fields" — sparring truly touches
+    nothing), Retry relaunching a spar, and a full bot-vs-bot sim confirming turn integrity
+    and save-untouched together. Uncertain: the opponent is always a random unlocked
+    species at the player's level (mirroring side hunts) rather than a hand-picked
+    "training partner" — simplest version per the Weigh note, and it can be revisited if a
+    future run wants named sparring partners.

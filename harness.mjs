@@ -194,7 +194,7 @@ function loadGame() {
       B, get save(){ return save; },
       SKILLS, DRAGONS, GEAR,
       statsAt, expNeed, other,
-      startBattle, startDuel, startSideHunt, startTrial, TRIAL_MODS, TRIAL_MULT, refreshTrial, checkEnd, fire, aiSolve, Dragon, startTurn,
+      startBattle, startDuel, startSideHunt, startTrial, startSpar, TRIAL_MODS, TRIAL_MULT, refreshTrial, checkEnd, fire, aiSolve, Dragon, startTurn,
       persist, loadSave, wipeSave, ladderWindow, refreshDen, BIOME_ORDER, BIOMES, blankRecord,
       get curBiomeKey(){ return curBiomeKey; }, get ground(){ return ground; }, FLOOR, SPAWN_P, SPAWN_E,
       get chasmCx(){ return chasmCx; }, get chasmHalfW(){ return chasmHalfW; },
@@ -3412,6 +3412,75 @@ const flush = () => new Promise((r) => setImmediate(r));
       if (B.e && !B.e.dead) B.e.draw(noopCtx);
     }
     assert(B.state === 'over', `a bot-vs-bot battle with a grown dragon should still terminate normally (stuck in "${B.state}")`);
+    clearTimers();
+  });
+
+  // -- TEST: sparring — a fully no-stakes practice battle --
+  await test('sparring: launchable from the Den, completes with turn integrity intact, and leaves save entirely unchanged on a win or a loss', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+    sv.dragonKey = 'ember'; sv.dragonName = 'Testwing'; sv.level = 5; sv.exp = 12; sv.gold = 321; sv.stage = 8;
+
+    // -- driving the real Den button launches a sparring match at the player's own stage/level --
+    H.refreshDen();
+    H.$('btnDenSpar').click();
+    let B = H.B;
+    assert(B.mode === 'battle' && B.spar === true, 'the Den\'s Spar button should start a sparring battle (B.spar)');
+    assert(B.stage === 8, `sparring should fight at the player's current stage (expected 8, got ${B.stage})`);
+    assert(!B.e.alpha, 'a sparring match should never spawn an alpha boss');
+    assert(B.p.level === 5, 'the piloted dragon should carry the save\'s real level into a sparring match');
+
+    // -- winning a sparring match pays and changes nothing in save --
+    let before = JSON.stringify(sv);
+    B.turnNo = 10; B.p.hp = B.p.maxhp; B.e.hp = 0;
+    H.checkEnd();
+    assert(B.state === 'over', 'the sparring battle ended when the enemy fell');
+    assert(JSON.stringify(sv) === before, 'a sparring win must leave save byte-for-byte unchanged (no exp/gold/record/bestiary/stage/stones)');
+    assert(H.$('vSub').textContent.toLowerCase().includes('sparring'), 'the victory modal should read as a sparring match');
+    assert(H.$('vExp').textContent === '' && H.$('vGold').textContent === '', 'a sparring win should show no reward text');
+    clearTimers();
+
+    // -- losing a sparring match also changes nothing in save, and Retry relaunches a spar --
+    sv.dragonKey = 'ember'; sv.dragonName = 'Testwing'; sv.level = 5; sv.exp = 12; sv.gold = 321; sv.stage = 8;
+    H.startSpar();
+    B = H.B;
+    before = JSON.stringify(sv);
+    B.p.hp = 0;
+    H.checkEnd();
+    assert(JSON.stringify(sv) === before, 'a sparring loss must leave save byte-for-byte unchanged (no losses recorded)');
+    tick(1100);
+    assert(!H.$('mDefeat').classList.contains('hidden'), 'defeat modal should show after a sparring loss');
+    H.$('btnRetry').click();
+    assert(H.B.spar === true, 'retrying after a sparring defeat should relaunch a sparring match, not a ladder battle');
+    clearTimers();
+
+    // -- bot-vs-bot turn integrity holds through a full sparring battle --
+    sv.dragonKey = 'volt'; sv.level = 6; sv.exp = 5; sv.gold = 50; sv.stage = 9;
+    H.startSpar();
+    B = H.B;
+    const savedBefore = JSON.stringify(sv);
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 16000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `sparring battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    assert(JSON.stringify(sv) === savedBefore, 'a full bot-vs-bot sparring match must leave save entirely untouched, win or lose');
     clearTimers();
   });
 
