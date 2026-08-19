@@ -188,3 +188,113 @@ dragon against AI, never a matchmaking system.
     species at the player's level (mirroring side hunts) rather than a hand-picked
     "training partner" — simplest version per the Weigh note, and it can be revisited if a
     future run wants named sparring partners.
+
+---
+
+## Tier N — the den, alive (Haypi roots, wave 2)
+
+Tier M closed out with sparring, so the queue ran dry per rule 7 above. This wave stays in
+the same spirit — always single-player, always your one dragon against AI — and goes after
+the parts of Haypi that made the den itself feel lived-in, not just a menu between fights:
+caring for your dragon day to day, a world with recognizable faces in it, and small
+personal texture layered on a career that was otherwise all stat sheets and a ladder.
+
+- [x] **Bond — feed your dragon between battles.** Haypi's core loop was daily care: you
+  fed your dragon and it grew closer to you, not just stronger from grinding. Nothing in
+  the career today rewards simply spending time with your dragon.
+  - *Intent:* the player has a reason to visit the Den and interact with their dragon that
+    isn't buying gear or picking a fight — a small, repeatable act of care that pays off
+    gradually and permanently.
+  - *Weigh:* keep it to one gold-sink action (Feed) and a short named-tier ladder
+    (Distant → Inseparable) read off a bond counter, resolving a small flat % bump to
+    ATK/DEF/AGI/LUK — the same shape New Game+'s stat bump already takes, so it needs no
+    new stat-resolution seam. Scale the feed cost up with bond so it's a real, slowing
+    gold sink rather than a free grind.
+  - *Extend:* `GEAR`/`COMPANIONS`/`PRESTIGE_STAT_PCT` for the "flat % stat modifier"
+    precedent, the `Dragon` constructor's `pMult` line where New Game+ already stacks a
+    multiplier, `refreshDen`'s loadout rows for the display.
+  - *Done when:* feeding is a real Den action with visible cost/feedback, the bond tier is
+    shown in the Den, it measurably raises resolved stats, and it survives save/load. Add
+    a harness assertion covering the resolved-stat change and save/load persistence.
+  - *Shipped:* a 5-tier `BOND_STAGES` table (Distant/Familiar/Bonded/Devoted/Inseparable,
+    thresholds at 0/5/15/30/50 feedings) with a pure `bondStageAt(bond)` lookup and
+    `bondMult(bond)` multiplier, resolved in the `Dragon` constructor by folding it into
+    the same `pMult` line New Game+ already uses (`pMult = prestigeMult * bondMult`) — so
+    bond and NG+ stack multiplicatively with no new resolution path. `feedCost()` scales
+    linearly with `save.bond` (40 + bond×8g) so it's a real, slowing gold sink, not a free
+    loop. A new **Feed 🍖** button sits in the Den's button row next to Side Hunt/Trial/
+    Spar; `refreshDen` shows the current tier name, progress toward the next threshold,
+    and the resolved bonus percentage, and disables the button when gold is short. Bond
+    persists through save/load and — deliberately, since it's framed as a relationship
+    rather than run progress — survives New Game+ resets alongside the career record,
+    achievements and bestiary. Verified by a new harness test (39/39 green): feeding via
+    the real Den button spends `feedCost()` and raises `save.bond`, the resolved stat
+    actually increases once the top tier is reached (never decreases any stat), feeding
+    fails cleanly with insufficient gold, bond survives save/load and a legacy save with
+    no `bond` field defaults to 0, bond survives a New Game+ reset, and a full bot-vs-bot
+    sim stays green with a bonded player dragon. Also added a **Bond** section to the
+    in-game Field Guide. Uncertain: the five-tier ladder and cost curve are a judgment
+    call with no reference numbers to match — tuned to feel like a slow, real relationship
+    rather than a fast stat-stacking trick.
+
+- [ ] **A rival trainer.** Haypi's world had recurring named opponents you crossed paths
+  with again and again, not just an undifferentiated stream of wild dragons. The ladder
+  today has no continuity of faces — every stage is a fresh anonymous encounter (alphas
+  aside).
+  - *Intent:* the player recognizes a specific AI-controlled rival and has a running
+    history against them — still strictly single-player-vs-AI, never PvP.
+  - *Weigh:* pick a simple trigger (e.g. a rival dragon appears every N stages, or once
+    per region) with a fixed name/species/element and a one-line taunt/defeat line;
+    track wins/losses against them specifically. Keep it a reskin of an existing battle
+    path (side hunt or ladder stage), not a new battle mode.
+  - *Extend:* `ALPHA_TITLES`/alpha-boss identity for the "named opponent with flavor text"
+    precedent, `save.record` for tracking, `WORLD_REGIONS`/`regionForStage` if tying
+    appearances to regions.
+  - *Done when:* the same named rival can be fought more than once across a career, with a
+    visible record of the rivalry; add a harness assertion covering the rival appearing on
+    schedule and the record tracking wins/losses against them.
+
+- [ ] **Den trophies.** Haypi let you decorate around your dragon with things you'd earned.
+  The Den today is purely functional — nothing in it reflects what the player has actually
+  accomplished.
+  - *Intent:* the Den visibly changes to reflect the player's career — a shelf of earned
+    trophies, not just numbers in a record row.
+  - *Weigh:* cheapest version is a small trophy case driven entirely off existing
+    `save.achieved`/`save.bestiary`/`save.record` data (no new currency or purchase flow)
+    — render an icon per earned achievement or milestone directly in the Den. Purely
+    visual; must not affect any resolved stat.
+  - *Extend:* `ACHIEVEMENTS`/`save.achieved` and `refreshDen` for the display seam.
+  - *Done when:* the Den visibly shows a trophy per earned milestone and updates live as
+    new ones are earned; add a harness assertion that the trophy case reflects
+    `save.achieved` exactly.
+
+- [ ] **A quest board.** Haypi Dragon dressed its grind in NPC-flavored errands, not bare
+  milestone counters. Achievements today are silent and mechanical; nothing in the Den
+  reads like a person handing the player a task.
+  - *Intent:* the player sees a short, rotating set of flavored objectives at the Den that
+    point at things they'd be doing anyway, dressed as a request from the world rather
+    than a hidden achievement check.
+  - *Weigh:* keep it to 2-3 concurrent short-lived objectives built from existing counters
+    (defeat N of element X, win a Trial, reach the next region) with a modest gold/EXP
+    payout on completion — this sits alongside `ACHIEVEMENTS` (one-time, silent) rather
+    than replacing it. Don't invent a new currency or a shop.
+  - *Extend:* `ACHIEVEMENTS`/`checkAchievements` for the "check a condition off save state"
+    precedent, `save.record`/`save.bestiary` for the conditions themselves, `refreshDen`
+    for the board display.
+  - *Done when:* the Den shows active objectives, completing one visibly pays out and
+    rotates in a new one, and progress survives save/load; add a harness assertion
+    covering completion payout and persistence.
+
+- [ ] **Den ambiance.** The Den today looks identical regardless of what biome/region the
+  player is about to fight in or what time it is. Haypi's home base had its own mood.
+  - *Intent:* the Den feels like a specific place tied to the player's current stretch of
+    the world, not a static backdrop.
+  - *Weigh:* cheapest version ties the Den's background palette/lighting to the current
+    region or biome (reuse `BIOMES`' existing palette data) so it shifts as the player
+    progresses — purely cosmetic, no new state beyond what `regionForStage`/`save.stage`
+    already derive.
+  - *Extend:* `BIOMES` palette data, `regionForStage`, wherever the Den's background is
+    styled/rendered.
+  - *Done when:* the Den's look visibly changes across at least two regions/biomes in a
+    normal playthrough; add a harness assertion that the Den's styling is derived
+    consistently from the current stage/region.

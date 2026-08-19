@@ -218,7 +218,8 @@ function loadGame() {
       bestiaryDefeatedCount, refreshBestiary,
       COMPANIONS, buyCompanion,
       WORLD_REGIONS, REGION_SPAN, regionForStage, regionIndex, isRegionEntry,
-      GROWTH_STAGES, growthStageAt
+      GROWTH_STAGES, growthStageAt,
+      BOND_STAGES, bondStageAt, bondMult, feedCost, feedDragon
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -3481,6 +3482,107 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
     assert(JSON.stringify(sv) === savedBefore, 'a full bot-vs-bot sparring match must leave save entirely untouched, win or lose');
+    clearTimers();
+  });
+
+  // -- TEST: bond — feeding your dragon at the Den for a small permanent stat bump --
+  await test('bond: feeding at the Den raises a named tier, resolves a permanent stat bump, persists, and the bot-vs-bot sim stays green', async () => {
+    clearTimers();
+    await H.wipeSave();
+    let sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 1; sv.stage = 1; sv.gold = 5000;
+    H.B.modeType = 'campaign';
+
+    assert(Array.isArray(H.BOND_STAGES) && H.BOND_STAGES.length >= 3, 'BOND_STAGES should define several named tiers');
+    assert(H.bondStageAt(0).mult === 0, 'zero bond should resolve the base (no-bonus) tier');
+    assert(H.bondMult(0) === 1, 'zero bond should resolve a 1x stat multiplier');
+
+    // -- unfed: no bond bonus resolves onto the dragon --
+    const dNone = new H.Dragon('ember', 1, false, 300);
+
+    // -- feeding via the real Den button spends gold and raises save.bond --
+    H.refreshDen();
+    const goldBefore = sv.gold, costBefore = H.feedCost();
+    H.$('btnDenFeed').click();
+    assert(sv.bond === 1, `feeding once should raise save.bond to 1 (got ${sv.bond})`);
+    assert(sv.gold === goldBefore - costBefore, `feeding should spend feedCost() gold (expected ${goldBefore - costBefore}, got ${sv.gold})`);
+    assert(H.$('denBond').textContent.includes('Distant') || H.$('denBond').textContent.includes('Familiar'),
+      `the Den should show the current bond tier name (got "${H.$('denBond').textContent}")`);
+
+    // -- feed past every threshold and confirm the resolved stat actually rises --
+    const topBond = H.BOND_STAGES[H.BOND_STAGES.length - 1].min;
+    while (sv.bond < topBond) { sv.gold = 1e9; H.$('btnDenFeed').click(); }
+    assert(H.bondStageAt(sv.bond).name === H.BOND_STAGES[H.BOND_STAGES.length - 1].name,
+      `feeding to ${sv.bond} should reach the top bond tier (got "${H.bondStageAt(sv.bond).name}")`);
+    const dBonded = new H.Dragon('ember', 1, false, 300);
+    assert(dBonded.atk > dNone.atk, `a fully bonded dragon should resolve higher atk than an unfed one (unfed ${dNone.atk}, bonded ${dBonded.atk})`);
+    assert(dBonded.def >= dNone.def && dBonded.agi >= dNone.agi && dBonded.luk >= dNone.luk,
+      'bond should never lower any resolved stat');
+    assert(H.$('denBond').textContent.includes('+' + Math.round(H.BOND_STAGES[H.BOND_STAGES.length - 1].mult * 100) + '%'),
+      'the Den should display the correct bonus percentage for the top bond tier');
+
+    // -- feeding is a real gold sink: it must fail (and change nothing) with insufficient gold --
+    sv.gold = 0;
+    const bondBefore = sv.bond;
+    const fed = H.feedDragon();
+    assert(fed === false && sv.bond === bondBefore, 'feedDragon should refuse (and not touch save.bond) when gold is short');
+
+    // -- persistence --
+    sv.gold = 5000;
+    H.$('btnDenFeed').click();
+    const bondAfterFeed = sv.bond;
+    H.persist();
+    sv.bond = -1;
+    await H.loadSave();
+    assert(sv.bond === bondAfterFeed, `bond should survive save then load (expected ${bondAfterFeed}, got ${sv.bond})`);
+
+    // -- a legacy save with no bond field at all still loads and defaults to zero --
+    await H.wipeSave();
+    const legacy = { v: 1, dragonKey: 'ember', level: 1, exp: 0, gold: 100, stage: 1,
+      potions: { hp: 1, mp: 1 }, amps: { calm: 0, surge: 0, scope: 0 },
+      gear: { fang: 0, scale: 0, charm: 0, talon: 0, ward: 0 }, sound: false,
+      record: H.blankRecord(), skillPts: 0, skillUpg: {}, stones: H.blankStones(),
+      achieved: {}, prestige: 0, bestiary: {}, companion: null };   // note: no bond key at all
+    store.set('dragonfire-duel-save', JSON.stringify(legacy));
+    await H.loadSave();
+    assert(H.save.bond === 0, `a legacy save with no bond field should default it to 0 (got ${JSON.stringify(H.save.bond)})`);
+
+    // -- New Game+ keeps the bond (a relationship, not run progress) --
+    await H.wipeSave();
+    sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 1; sv.stage = 1; sv.gold = 5000; sv.bond = 0;
+    sv.record.bestStage = H.PRESTIGE_STAGE_REQ;
+    for (let i = 0; i < 6; i++) H.feedDragon();
+    const bondPrePrestige = sv.bond;
+    assert(H.newGamePlus() === true, 'New Game+ should succeed once the stage requirement is met');
+    sv = H.save;
+    assert(sv.bond === bondPrePrestige, `New Game+ should keep bond untouched (expected ${bondPrePrestige}, got ${sv.bond})`);
+
+    // -- bot-vs-bot turn integrity holds with a bonded player dragon --
+    clearTimers();
+    sv.dragonKey = 'ember'; sv.level = 3; sv.stage = 2; sv.exp = 0;
+    H.startBattle(2);
+    const B = H.B;
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `bonded-dragon battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 2, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
     clearTimers();
   });
 
