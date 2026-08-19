@@ -347,11 +347,13 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <div id="denGear" class="recordRow"></div>
     <div id="denStones" class="recordRow"></div>
     <div id="denCompanion" style="font-size:12.5px;color:var(--mist)"></div>
+    <div id="denBond" style="font-size:12.5px;color:var(--mist)"></div>
     <div id="denSkillPts" style="font-size:12px;color:var(--gold);min-height:14px"></div>
     <div class="rowBtns">
       <button class="bigBtn primary" id="btnDenNext" style="font-size:16px;padding:12px 30px">Next Battle ▶</button>
     </div>
     <div class="rowBtns">
+      <button class="subBtn" id="btnDenFeed" title="Feed your dragon to raise its bond with you — a small permanent stat bump that grows with the relationship">Feed 🍖</button>
       <button class="subBtn" id="btnDenSide" title="An off-ladder practice fight at your own stage/level — reduced rewards, stage unchanged">Side Hunt</button>
       <button class="subBtn" id="btnDenTrial" title="An off-ladder fight at your own stage/level with one active constraint — bigger rewards, stage unchanged">Trial</button>
       <button class="subBtn" id="btnDenSpar" title="A no-stakes practice fight against a leveled AI partner — try a loadout with nothing gained or lost">Spar</button>
@@ -491,6 +493,8 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
       Shop-bought one-shot items that bend a single turn, just like potions — carry up to 2 of each: 🍃 <b>Calm Wind</b> zeroes the wind for this turn's shot, 💥 <b>Overcharge</b> adds +30% damage to your next shot, 🔭 <b>Scope</b> reveals the exact wind for your next two turns. None of them end your turn.
       <div class="sec">Magic stones</div>
       Victories sometimes drop a stone carrying the defeated dragon's element — alphas always drop one, and drop better tiers. Socket up to 3 in the Den's <b>Stones</b> panel for a % ATK bonus, full value if it matches your own dragon's element. Three of the same tier and element synthesize into one of the next tier.
+      <div class="sec">Bond</div>
+      Back at the Den, <b>Feed</b> your dragon for gold to raise its bond with you — a five-tier relationship (Distant → Inseparable) that permanently adds a small % to ATK/DEF/AGI/LUK as it deepens. Cost rises each feeding; the bond itself never resets, not even on New Game+.
       <div class="sec">Elements</div>
       Every dragon carries an element — Fire, Ice, Thunder, Earth, Shadow, or Toxin — set on a wheel where each is strong against one and weak against another (a ▲/▼ badge on the HUD plate, an "Effective!"/"Resisted" float on hit). <b>Nyx</b>, a 7th dragon earned by felling 3 alpha bosses, carries the Void element and sits outside the wheel entirely — neutral against every matchup.
       <div class="sec">Alpha bosses</div>
@@ -699,6 +703,31 @@ const COMPANIONS={
   hare:  {ic:'🐇', name:'Moon Hare',    stat:'turnHeal', val:0.03, desc:'Heals 3% max HP at the start of your turn.', cost:220}
 };
 
+/* ---------- bond ---------- */
+// Feeding your dragon between battles — the Haypi daily-care loop, reduced to its
+// simplest playable shape: spend gold at the Den to raise a bond counter, which reads
+// off a small named-tier ladder into a flat % stat bump. Resolved the same multiplicative
+// way New Game+'s pMult already is, so it needs no new stat-resolution seam.
+const BOND_STAGES=[
+  {min:0,  name:'Distant',     mult:0},
+  {min:5,  name:'Familiar',    mult:0.02},
+  {min:15, name:'Bonded',      mult:0.05},
+  {min:30, name:'Devoted',     mult:0.09},
+  {min:50, name:'Inseparable', mult:0.14}
+];
+function bondStageAt(bond){
+  let s=BOND_STAGES[0];
+  for(const st of BOND_STAGES){ if(bond>=st.min)s=st; }
+  return s;
+}
+function bondMult(bond){ return 1+bondStageAt(bond).mult; }
+function feedCost(){ return 40+(save.bond||0)*8; }
+function feedDragon(){
+  const cost=feedCost();
+  if(!save.dragonKey||save.gold<cost)return false;
+  save.gold-=cost; save.bond=(save.bond||0)+1; persist(); return true;
+}
+
 /* ---------- magic stones ---------- */
 // A second, luck-flavored track distinct from gear: gear is flat stat adds bought with
 // gold; stones are percent ATK bonuses that drop from victories and get socketed. A
@@ -750,10 +779,10 @@ function newGamePlus(){
         keepSound=save.sound, keepPrestige=(save.prestige||0)+1;
   // A second carry-over alongside the flat stat bump: every reset also starts the fresh
   // run with a little more gold in the bank, stacking the same way the stat bonus does.
-  const keepBestiary=save.bestiary;
+  const keepBestiary=save.bestiary, keepBond=save.bond||0;
   save={v:1,dragonKey:keepKey,dragonName:keepName,level:1,exp:0,gold:120+keepPrestige*PRESTIGE_GOLD_BONUS,stage:1,potions:{hp:1,mp:1},
     amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:keepSound,
-    record:keepRecord,skillPts:0,skillUpg:{},stones:blankStones(),achieved:keepAch,prestige:keepPrestige,bestiary:keepBestiary,companion:null};
+    record:keepRecord,skillPts:0,skillUpg:{},stones:blankStones(),achieved:keepAch,prestige:keepPrestige,bestiary:keepBestiary,companion:null,bond:keepBond};
   persist();
   return true;
 }
@@ -857,7 +886,7 @@ function triggerBiomeWeather(){
 
 /* ---------- persistent save ---------- */
 function blankRecord(){ return {wins:0,losses:0,alphaWins:0,bestStage:1,lifeGold:0,lifeExp:0,grades:{S:0,A:0,B:0,C:0}}; }
-let save={v:1,dragonKey:null,dragonName:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0,bestiary:{},companion:null};
+let save={v:1,dragonKey:null,dragonName:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0,bestiary:{},companion:null,bond:0};
 const SAVE_KEY='dragonfire-duel-save';
 let storageOK=false;
 async function loadSave(){
@@ -880,7 +909,8 @@ async function loadSave(){
       if(!save.achieved)save.achieved={};
       if(typeof save.prestige!=='number')save.prestige=0;
       if(!save.bestiary)save.bestiary={};
-      if(typeof save.companion==='undefined')save.companion=null;}}
+      if(typeof save.companion==='undefined')save.companion=null;
+      if(typeof save.bond!=='number')save.bond=0;}}
     storageOK=true;
   }catch(e){ storageOK=(typeof window.storage!=='undefined'); }
 }
@@ -889,7 +919,7 @@ function persist(){
   try{ window.storage.set(SAVE_KEY,JSON.stringify(save)).catch(()=>{}); }catch(e){}
 }
 async function wipeSave(){
-  save={v:1,dragonKey:null,dragonName:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0,bestiary:{},companion:null};
+  save={v:1,dragonKey:null,dragonName:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:save.sound,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0,bestiary:{},companion:null,bond:0};
   try{ await window.storage.delete(SAVE_KEY);}catch(e){}
 }
 
@@ -1256,8 +1286,8 @@ class Dragon{
         else if(comp.stat==='fallCut')this.fallCut=comp.val;
         else if(comp.stat==='turnHeal')this.turnHealPct=comp.val;
       }
-      // New Game+: each reset permanently stacks a small % bump on top of gear.
-      const pMult=1+(save.prestige||0)*PRESTIGE_STAT_PCT;
+      // New Game+ and bond both stack a small permanent % bump on top of gear.
+      const pMult=(1+(save.prestige||0)*PRESTIGE_STAT_PCT)*bondMult(save.bond||0);
       this.atk=Math.round(this.atk*pMult); this.def=Math.round(this.def*pMult);
       this.agi=Math.round(this.agi*pMult); this.luk=Math.round(this.luk*pMult);
     }
@@ -2502,6 +2532,10 @@ $('btnTrialClose').addEventListener('click',()=>{sfx.click(); hideModals();});
 $('btnDenNext').addEventListener('click',()=>{sfx.click(); startBattle(save.stage);});
 $('btnDenSide').addEventListener('click',()=>{sfx.click(); startSideHunt();});
 $('btnDenSpar').addEventListener('click',()=>{sfx.click(); startSpar();});
+$('btnDenFeed').addEventListener('click',()=>{
+  if(!feedDragon())return;
+  sfx.heal(); announce('Bond deepens: '+bondStageAt(save.bond).name+'.'); refreshDen();
+});
 $('btnDenPrestige').addEventListener('click',()=>{
   if(!canPrestige())return;
   sfx.click();
@@ -2597,6 +2631,11 @@ function refreshDen(){
   $('denCompanion').textContent=save.companion?
     ('Companion: '+COMPANIONS[save.companion].ic+' '+COMPANIONS[save.companion].name+' — '+COMPANIONS[save.companion].desc):
     'Companion: none — visit the Shop';
+  const bond=save.bond||0, bStage=bondStageAt(bond), bNext=BOND_STAGES.find(s=>s.min>bond);
+  $('denBond').textContent='Bond: '+bStage.name+' ('+bond+(bNext?'/'+bNext.min:'')+') — +'+Math.round(bStage.mult*100)+'% ATK/DEF/AGI/LUK';
+  const fCost=feedCost();
+  $('btnDenFeed').disabled=save.gold<fCost;
+  $('btnDenFeed').title='Feed your dragon for '+fCost+'g to raise its bond — a small permanent stat bump that grows with the relationship.';
   $('denSkillPts').textContent=save.skillPts>0?(save.skillPts+' skill point'+(save.skillPts>1?'s':'')+' to spend'):'';
 }
 function goDen(){
