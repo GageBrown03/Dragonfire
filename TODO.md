@@ -237,7 +237,7 @@ personal texture layered on a career that was otherwise all stat sheets and a la
     call with no reference numbers to match — tuned to feel like a slow, real relationship
     rather than a fast stat-stacking trick.
 
-- [ ] **A rival trainer.** Haypi's world had recurring named opponents you crossed paths
+- [x] **A rival trainer.** Haypi's world had recurring named opponents you crossed paths
   with again and again, not just an undifferentiated stream of wild dragons. The ladder
   today has no continuity of faces — every stage is a fresh anonymous encounter (alphas
   aside).
@@ -253,6 +253,34 @@ personal texture layered on a career that was otherwise all stat sheets and a la
   - *Done when:* the same named rival can be fought more than once across a career, with a
     visible record of the rivalry; add a harness assertion covering the rival appearing on
     schedule and the record tracking wins/losses against them.
+  - *Shipped:* one fixed rival — **Karth** and his thunder dragon **Stormquill** (`RIVAL`) —
+    scheduled by the pure `isRivalStage(stage)` (`stage % REGION_SPAN === RIVAL_STAGE_MOD`,
+    i.e. stages 3, 8, 13, …). That lands exactly one rival encounter per `WORLD_REGIONS`
+    block and, because the alpha sits on the block's last stage, never collides with a boss.
+    Deliberately a *reskin of an ordinary ladder stage* rather than a new battle mode, per
+    the Weigh note: `startBattle` branches only to build a fixed-species enemy one level
+    above the stage and rename it; rewards, ladder advance, stone drops, grades and the AI
+    are all untouched. Head-to-head lives in `save.record` as `rivalWins`/`rivalLosses`/
+    `rivalMet` (blank-record defaults + `loadSave` backfill, so legacy saves load and read
+    0–0). Visible in four places: a Den line (`denRival`) with the running record and the
+    next meeting's stage, a gold ⚔ marker plus tooltip on the ladder node, an in-battle
+    stage tag and a taunt line that varies with who's ahead, and win/defeat modal lines
+    quoting the current score. Off-ladder battles (side hunt / trial / spar) and duel mode
+    are never rival encounters. Verified by a new harness test (40/40 green) covering the
+    schedule across 40 stages, one-per-region, no alpha collision, the named/fixed-species
+    spawn, meeting count, a win *and* a loss each moving the right counter, the ladder
+    advancing normally on a rival win, a repeat encounter later in the career, the Den and
+    ladder display, off-ladder/duel isolation, save/load, a legacy record backfill, and a
+    full bot-vs-bot rival battle staying turn-integral while scoring exactly once. Also
+    spot-checked live in a headless browser (Den line, ⚔ markers on stages 3 and 8, battle
+    tag, no console errors) and given a Field Guide section.
+  - *Note for a future run:* one unrelated pre-existing harness sim (the Scope amplifier
+    test) had an 8000-frame budget that this change's RNG shift pushed it past — the battle
+    was progressing normally (34 turns, both dragons alive, strict alternation intact), just
+    slowly, so the budget was raised to 40000 rather than the game changed. The harness is
+    seed-sensitive in general: `DRAGONFIRE_SEED=7|999|4242 node harness.mjs` each fail a
+    *different* unrelated test on `main` as well. Worth hardening someday (the sims' bot
+    fires plain shots only while the AI heals, which can grind), but it is not a game bug.
 
 - [ ] **Den trophies.** Haypi let you decorate around your dragon with things you'd earned.
   The Den today is purely functional — nothing in it reflects what the player has actually

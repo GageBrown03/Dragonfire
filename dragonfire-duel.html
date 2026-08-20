@@ -169,6 +169,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 .ladderNode .biomeDot{position:absolute;bottom:-3px;left:50%;transform:translateX(-50%);
   width:7px;height:7px;border-radius:50%;border:1px solid #0007}
 .ladderNode .star{position:absolute;top:-9px;right:-6px;font-size:11px}
+.ladderNode .rivalMark{position:absolute;top:-10px;left:-7px;font-size:11px;color:var(--gold)}
 .ladderNode.cleared{opacity:.4}
 .ladderNode.cleared .n{visibility:hidden}
 .ladderNode.cleared::after{content:'✓';position:absolute;color:var(--hp);font-size:15px;font-weight:900}
@@ -348,6 +349,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <div id="denStones" class="recordRow"></div>
     <div id="denCompanion" style="font-size:12.5px;color:var(--mist)"></div>
     <div id="denBond" style="font-size:12.5px;color:var(--mist)"></div>
+    <div id="denRival" style="font-size:12.5px;color:var(--mist)"></div>
     <div id="denSkillPts" style="font-size:12px;color:var(--gold);min-height:14px"></div>
     <div class="rowBtns">
       <button class="bigBtn primary" id="btnDenNext" style="font-size:16px;padding:12px 30px">Next Battle ▶</button>
@@ -389,6 +391,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
   <div class="modal hidden" id="mDefeat"><div class="box">
     <h2 class="lose">DEFEATED</h2>
     <p>Your dragon limps home to recover. Experience and gold are kept.</p>
+    <p id="dSub" class="sub"></p>
     <div class="rowBtns">
       <button id="btnQuit">Title</button>
       <button class="primary bigBtn" id="btnRetry" style="font-size:15px;padding:11px 22px">Retry Stage</button>
@@ -495,6 +498,8 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
       Victories sometimes drop a stone carrying the defeated dragon's element — alphas always drop one, and drop better tiers. Socket up to 3 in the Den's <b>Stones</b> panel for a % ATK bonus, full value if it matches your own dragon's element. Three of the same tier and element synthesize into one of the next tier.
       <div class="sec">Bond</div>
       Back at the Den, <b>Feed</b> your dragon for gold to raise its bond with you — a five-tier relationship (Distant → Inseparable) that permanently adds a small % to ATK/DEF/AGI/LUK as it deepens. Cost rises each feeding; the bond itself never resets, not even on New Game+.
+      <div class="sec">Your rival</div>
+      A rival trainer, <b>Karth</b>, and his thunder dragon <b>Stormquill</b> cross your path once per region — on the region's third stage, marked ⚔ on the Den ladder. He's an ordinary ladder stage with a face on it: same rewards, same ladder advance, but a level above the stage and with a running head-to-head record shown in the Den.
       <div class="sec">Elements</div>
       Every dragon carries an element — Fire, Ice, Thunder, Earth, Shadow, or Toxin — set on a wheel where each is strong against one and weak against another (a ▲/▼ badge on the HUD plate, an "Effective!"/"Resisted" float on hit). <b>Nyx</b>, a 7th dragon earned by felling 3 alpha bosses, carries the Void element and sits outside the wheel entirely — neutral against every matchup.
       <div class="sec">Alpha bosses</div>
@@ -846,6 +851,25 @@ function regionForStage(stage){
 }
 function isRegionEntry(stage){return stage>=1&&(stage-1)%REGION_SPAN===0;}
 
+// A rival trainer: one recurring named opponent so the ladder has a face on it instead of
+// an unbroken stream of anonymous wild dragons. Deliberately a reskin of an ordinary ladder
+// stage (same rewards, same ladder advance, same AI) rather than a new battle mode — the
+// only differences are a fixed species, a small level edge, flavor lines, and a tracked
+// head-to-head record. Scheduled at RIVAL_STAGE_MOD within each REGION_SPAN block, so the
+// player meets them once per region and never on the region's alpha stage.
+const RIVAL={trainer:'Karth', key:'volt', name:'Stormquill', lvlBonus:1};
+const RIVAL_STAGE_MOD=3;
+function isRivalStage(stage){ return stage>=1 && stage%REGION_SPAN===RIVAL_STAGE_MOD; }
+function nextRivalStage(from){ let n=Math.max(1,from); while(!isRivalStage(n))n++; return n; }
+function rivalScore(){ const r=save.record||{}; return {w:r.rivalWins||0, l:r.rivalLosses||0, met:r.rivalMet||0}; }
+function rivalTaunt(){
+  const s=rivalScore();
+  if(s.met<=1)return RIVAL.trainer+' blocks the path — "So you\'re the one climbing my ladder. '+RIVAL.name+', show them."';
+  if(s.l>s.w)return RIVAL.trainer+' smirks — "Back for another? '+RIVAL.name+' still remembers you."';
+  if(s.w>s.l)return RIVAL.trainer+' scowls — "You won\'t land that twice. '+RIVAL.name+', end it."';
+  return RIVAL.trainer+' nods — "Even so far. Let\'s settle it."';
+}
+
 // Biome-linked weather: one telegraphed hook per hazardous biome, on a fixed turn cadence
 // alongside the wind (deterministic, not a random roll, so it can be learned and planned
 // around like the turn counter itself). Meadow (the calm baseline) sits this out; the
@@ -885,7 +909,7 @@ function triggerBiomeWeather(){
 }
 
 /* ---------- persistent save ---------- */
-function blankRecord(){ return {wins:0,losses:0,alphaWins:0,bestStage:1,lifeGold:0,lifeExp:0,grades:{S:0,A:0,B:0,C:0}}; }
+function blankRecord(){ return {wins:0,losses:0,alphaWins:0,bestStage:1,lifeGold:0,lifeExp:0,grades:{S:0,A:0,B:0,C:0},rivalWins:0,rivalLosses:0,rivalMet:0}; }
 let save={v:1,dragonKey:null,dragonName:null,level:1,exp:0,gold:120,stage:1,potions:{hp:1,mp:1},amps:{calm:0,surge:0,scope:0},gear:{fang:0,scale:0,charm:0,talon:0,ward:0},sound:true,record:blankRecord(),skillPts:0,skillUpg:{},stones:blankStones(),achieved:{},prestige:0,bestiary:{},companion:null,bond:0};
 const SAVE_KEY='dragonfire-duel-save';
 let storageOK=false;
@@ -897,6 +921,9 @@ async function loadSave(){
       if(typeof save.gear.ward!=='number')save.gear.ward=0;
       if(!save.record)save.record=blankRecord();
       if(!save.record.grades)save.record.grades={S:0,A:0,B:0,C:0};
+      if(typeof save.record.rivalWins!=='number')save.record.rivalWins=0;
+      if(typeof save.record.rivalLosses!=='number')save.record.rivalLosses=0;
+      if(typeof save.record.rivalMet!=='number')save.record.rivalMet=0;
       if(typeof save.skillPts!=='number')save.skillPts=0;
       if(!save.skillUpg)save.skillUpg={};
       if(!save.amps)save.amps={calm:0,surge:0,scope:0};
@@ -1473,7 +1500,7 @@ class Proj{
 /* =====================================================================
    BATTLE STATE
    ===================================================================== */
-const B={mode:'title',modeType:'campaign',state:'idle',stage:1,side:false,trial:null,spar:false,p:null,e:null,active:null,wind:0,
+const B={mode:'title',modeType:'campaign',state:'idle',stage:1,side:false,trial:null,spar:false,rival:false,p:null,e:null,active:null,wind:0,
   aim:{ang:45,pow:0,charging:false,skill:'shot'},
   queue:[],projs:[],zones:[],usedItem:{hp:false,mp:false,calm:false,surge:false,scope:false},ampSurge:false,aiPlan:null,turnNo:0,hinted:false,duelKeys:null,windForecast:[]};
 const other=d=>d===B.p?B.e:B.p;
@@ -1512,23 +1539,31 @@ function enterBattleUI(tagText){
   hideModals();
 }
 function startBattle(stage){
-  B.mode='battle'; B.modeType='campaign'; B.side=false; B.trial=null; B.spar=false; B.stage=stage; B.state='idle';
+  B.mode='battle'; B.modeType='campaign'; B.side=false; B.trial=null; B.spar=false; B.rival=false; B.stage=stage; B.state='idle';
   const biomeKey=BIOME_ORDER[(stage-1)%BIOME_ORDER.length];
   setupField(biomeKey,stage);
   B.p=new Dragon(save.dragonKey,save.level,false,SPAWN_P);
   const keys=Object.keys(DRAGONS).filter(isDragonUnlocked);
   const alpha=stage%5===0;
-  B.e=new Dragon(keys[randi(0,keys.length-1)],stage+(alpha?2:0),true,SPAWN_E,alpha);
+  B.rival=!alpha&&isRivalStage(stage);
+  if(B.rival){
+    B.e=new Dragon(RIVAL.key,stage+RIVAL.lvlBonus,true,SPAWN_E,false);
+    B.e.name=RIVAL.name;
+    save.record.rivalMet++; persist();
+  }else{
+    B.e=new Dragon(keys[randi(0,keys.length-1)],stage+(alpha?2:0),true,SPAWN_E,alpha);
+  }
   B.e.facing=-1;
   B.aim.ang=45; B.aim.pow=0; B.aim.charging=false; B.aim.skill='shot';
   $('itemCtl').style.display='flex';
   rollWind();
-  enterBattleUI('Stage '+stage+(alpha?' ★ '+B.e.name:'')+' · '+curBiome.name);
+  enterBattleUI('Stage '+stage+(alpha?' ★ '+B.e.name:'')+(B.rival?' ⚔ '+RIVAL.trainer+"'s "+B.e.name:'')+' · '+curBiome.name);
   camSnap(B.p.x,B.p.y-120);
   setTimeout(()=>startTurn(B.p),700);
   announceMatchup(1000);
   if(curBiome.gap)setTimeout(()=>announce('A chasm splits the field — arc your shots, or risk the fall.'),1350);
   if(alpha)setTimeout(()=>announce(B.e.name+' — Alpha boss. Enrages below 40% HP!'),1700);
+  if(B.rival){const s=rivalScore(); setTimeout(()=>announce(rivalTaunt()+(s.met>1?'  ('+RIVAL.trainer+' rivalry '+s.w+'–'+s.l+')':'')),1700);}
   if(!B.hinted){B.hinted=true; setTimeout(()=>announce('Drag back from your dragon to slingshot — or hold FIRE.'),alpha?3400:1800);}
 }
 // The Eyrie valve: an optional off-ladder battle at the player's own stage/level for
@@ -1538,7 +1573,7 @@ const SIDE_HUNT_MULT=0.5;
 function startSideHunt(){
   if(!save.dragonKey)return;
   const stage=Math.max(1,save.stage);
-  B.mode='battle'; B.modeType='campaign'; B.side=true; B.trial=null; B.spar=false; B.stage=stage; B.state='idle';
+  B.mode='battle'; B.modeType='campaign'; B.side=true; B.trial=null; B.spar=false; B.rival=false; B.stage=stage; B.state='idle';
   const biomeKey=BIOME_ORDER[(stage-1)%BIOME_ORDER.length];
   setupField(biomeKey,stage);
   B.p=new Dragon(save.dragonKey,save.level,false,SPAWN_P);
@@ -1568,7 +1603,7 @@ const TRIAL_MODS={
 function startTrial(modKey){
   if(!save.dragonKey||!TRIAL_MODS[modKey])return;
   const stage=Math.max(1,save.stage);
-  B.mode='battle'; B.modeType='campaign'; B.side=false; B.trial={mod:modKey}; B.spar=false; B.stage=stage; B.state='idle';
+  B.mode='battle'; B.modeType='campaign'; B.side=false; B.trial={mod:modKey}; B.spar=false; B.rival=false; B.stage=stage; B.state='idle';
   const biomeKey=BIOME_ORDER[(stage-1)%BIOME_ORDER.length];
   setupField(biomeKey,stage);
   B.p=new Dragon(save.dragonKey,save.level,false,SPAWN_P);
@@ -1597,7 +1632,7 @@ function startTrial(modKey){
 function startSpar(){
   if(!save.dragonKey)return;
   const stage=Math.max(1,save.stage);
-  B.mode='battle'; B.modeType='campaign'; B.side=false; B.trial=null; B.spar=true; B.stage=stage; B.state='idle';
+  B.mode='battle'; B.modeType='campaign'; B.side=false; B.trial=null; B.spar=true; B.rival=false; B.stage=stage; B.state='idle';
   const biomeKey=BIOME_ORDER[(stage-1)%BIOME_ORDER.length];
   setupField(biomeKey,stage);
   B.p=new Dragon(save.dragonKey,save.level,false,SPAWN_P);
@@ -1615,7 +1650,7 @@ function startSpar(){
   setTimeout(()=>announce('Sparring — no-stakes practice. Nothing gained or lost either way.'),1700);
 }
 function startDuel(k1,k2){
-  B.mode='battle'; B.modeType='duel'; B.stage=0; B.side=false; B.trial=null; B.spar=false; B.state='idle'; B.duelKeys=[k1,k2];
+  B.mode='battle'; B.modeType='duel'; B.stage=0; B.side=false; B.trial=null; B.spar=false; B.rival=false; B.state='idle'; B.duelKeys=[k1,k2];
   const biomeKey=BIOME_ORDER[randi(0,BIOME_ORDER.length-1)];
   setupField(biomeKey,4);
   B.p=new Dragon(k1,6,false,SPAWN_P);
@@ -2033,6 +2068,7 @@ function victory(){
   save.record.grades[hg.grade]++;
   save.bestiary[B.e.key]=(save.bestiary[B.e.key]||0)+1;
   if(alpha)save.record.alphaWins++;
+  if(B.rival)save.record.rivalWins++;
   if(!offLadder)save.record.bestStage=Math.max(save.record.bestStage,B.stage);
   let ups=0; while(save.exp>=expNeed(save.level)){save.exp-=expNeed(save.level); save.level++; ups++;}
   save.skillPts+=ups;
@@ -2063,12 +2099,15 @@ function victory(){
   $('vLvl').textContent=lvTxt;
   $('vSub').textContent=trial?(B.e.name+' driven off — trial cleared, the ladder is unchanged.'):
     (side?(B.e.name+' driven off — side hunt complete, the ladder is unchanged.'):
-    (alpha?(B.e.name+' has fallen — the alpha is felled!'):(B.e.name+' has fallen.')));
+    (alpha?(B.e.name+' has fallen — the alpha is felled!'):
+    (B.rival?(RIVAL.trainer+"'s "+B.e.name+' yields — your rivalry stands at '+rivalScore().w+'–'+rivalScore().l+'.'):
+    (B.e.name+' has fallen.'))));
   setTimeout(()=>showModal('mVictory'),1000);
 }
 function defeat(){
   B.state='over'; deathFX(B.p); sfx.lose();
-  if(!B.spar){ save.record.losses++; persist(); }
+  if(!B.spar){ save.record.losses++; if(B.rival)save.record.rivalLosses++; persist(); }
+  $('dSub').textContent=B.rival?(RIVAL.trainer+' stands over you — "Come back when it can actually fly." Rivalry '+rivalScore().w+'–'+rivalScore().l+'.'):'';
   setTimeout(()=>showModal('mDefeat'),1000);
 }
 function duelEnd(w,l){
@@ -2572,7 +2611,9 @@ function ladderWindow(stage,back=3,fwd=8){
   const lo=Math.max(1,stage-back), hi=stage+fwd, out=[];
   for(let n=lo;n<=hi;n++){
     const biomeKey=BIOME_ORDER[(n-1)%BIOME_ORDER.length];
-    out.push({n, biomeKey, biomeName:BIOMES[biomeKey].name, alpha:n%5===0,
+    const alpha=n%5===0;
+    out.push({n, biomeKey, biomeName:BIOMES[biomeKey].name, alpha,
+      rival:!alpha&&isRivalStage(n),
       region:regionForStage(n).name,
       state:n<stage?'cleared':(n===stage?'current':'future')});
   }
@@ -2583,9 +2624,11 @@ function buildLadder(){
   ladderWindow(save.stage).forEach(node=>{
     const el=document.createElement('div');
     el.className='ladderNode '+node.state+(node.alpha?' alpha':'');
-    el.title='Stage '+node.n+' · '+node.biomeName+' · '+node.region+(node.alpha?' · Alpha boss':'');
+    el.title='Stage '+node.n+' · '+node.biomeName+' · '+node.region+(node.alpha?' · Alpha boss':'')+
+      (node.rival?" · "+RIVAL.trainer+"'s "+RIVAL.name+' (rival)':'');
     el.innerHTML='<span class="n">'+node.n+'</span><span class="biomeDot" style="background:'+
-      BIOMES[node.biomeKey].cap+'"></span>'+(node.alpha?'<span class="star">★</span>':'');
+      BIOMES[node.biomeKey].cap+'"></span>'+(node.alpha?'<span class="star">★</span>':'')+
+      (node.rival?'<span class="rivalMark">⚔</span>':'');
     wrap.appendChild(el);
   });
 }
@@ -2633,6 +2676,11 @@ function refreshDen(){
     'Companion: none — visit the Shop';
   const bond=save.bond||0, bStage=bondStageAt(bond), bNext=BOND_STAGES.find(s=>s.min>bond);
   $('denBond').textContent='Bond: '+bStage.name+' ('+bond+(bNext?'/'+bNext.min:'')+') — +'+Math.round(bStage.mult*100)+'% ATK/DEF/AGI/LUK';
+  const rs=rivalScore(), nextRiv=nextRivalStage(save.stage);
+  $('denRival').textContent='Rival — '+RIVAL.trainer+"'s "+RIVAL.name+': '+rs.w+'–'+rs.l+
+    (rs.met?' over '+rs.met+' meeting'+(rs.met>1?'s':''):' — not yet met')+
+    ' · next at stage '+nextRiv;
+  $('denRival').title='A rival trainer crosses your path once per region, on the region\'s third stage. Beating them advances the ladder like any other stage.';
   const fCost=feedCost();
   $('btnDenFeed').disabled=save.gold<fCost;
   $('btnDenFeed').title='Feed your dragon for '+fCost+'g to raise its bond — a small permanent stat bump that grows with the relationship.';

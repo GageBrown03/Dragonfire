@@ -219,7 +219,8 @@ function loadGame() {
       COMPANIONS, buyCompanion,
       WORLD_REGIONS, REGION_SPAN, regionForStage, regionIndex, isRegionEntry,
       GROWTH_STAGES, growthStageAt,
-      BOND_STAGES, bondStageAt, bondMult, feedCost, feedDragon
+      BOND_STAGES, bondStageAt, bondMult, feedCost, feedDragon,
+      RIVAL, RIVAL_STAGE_MOD, isRivalStage, nextRivalStage, rivalScore, rivalTaunt, defeat
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -2193,7 +2194,9 @@ const flush = () => new Promise((r) => setImmediate(r));
     B = H.B;
     let lastTurn = 0, prevSide = null, turnsSeen = 0;
     const problems = [];
-    const BUDGET = 8000;
+    // Roomier than the other sims: the harness bot fires plain shots only while the AI
+    // heals, so this particular matchup can grind well past 30 turns before it resolves.
+    const BUDGET = 40000;
     for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
       tick(16);
       if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
@@ -3583,6 +3586,163 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(B.state === 'over', `bonded-dragon battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
     assert(turnsSeen >= 2, `expected several turns, only saw ${turnsSeen}`);
     assert(problems.length === 0, problems.join('; '));
+    clearTimers();
+  });
+
+  // -- TEST: a rival trainer — a recurring named opponent with a tracked head-to-head record --
+  await test('rival trainer: a named rival appears on schedule, is visible in the Den/ladder, tracks wins and losses across a career, persists, and the bot-vs-bot sim stays green', async () => {
+    clearTimers();
+    await H.wipeSave();
+    let sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 4; sv.exp = 0; sv.gold = 100; sv.stage = 1;
+    H.B.modeType = 'campaign';
+
+    // -- the schedule is pure and never collides with an alpha stage --
+    assert(H.RIVAL && H.RIVAL.name && H.RIVAL.trainer && H.DRAGONS[H.RIVAL.key],
+      'RIVAL should name a trainer, a dragon and a real species');
+    for (let n = 1; n <= 40; n++) {
+      const want = n % H.REGION_SPAN === H.RIVAL_STAGE_MOD;
+      assert(H.isRivalStage(n) === want, `isRivalStage(${n}) should be ${want} (got ${H.isRivalStage(n)})`);
+      if (H.isRivalStage(n)) assert(n % 5 !== 0, `a rival stage must never land on an alpha stage (stage ${n})`);
+    }
+    // one rival encounter per region block
+    for (let r = 0; r < 6; r++) {
+      const block = [];
+      for (let n = r * H.REGION_SPAN + 1; n <= (r + 1) * H.REGION_SPAN; n++) if (H.isRivalStage(n)) block.push(n);
+      assert(block.length === 1, `region block ${r} should hold exactly one rival stage (got ${JSON.stringify(block)})`);
+    }
+    assert(H.nextRivalStage(1) === H.RIVAL_STAGE_MOD, `nextRivalStage(1) should be ${H.RIVAL_STAGE_MOD} (got ${H.nextRivalStage(1)})`);
+    assert(H.isRivalStage(H.nextRivalStage(H.RIVAL_STAGE_MOD + 1)) && H.nextRivalStage(H.RIVAL_STAGE_MOD + 1) > H.RIVAL_STAGE_MOD,
+      'nextRivalStage should skip past the current rival stage to the next one');
+
+    // -- an ordinary stage is not a rival encounter and leaves the rivalry untouched --
+    H.startBattle(1);
+    assert(H.B.rival === false, 'stage 1 should not be a rival encounter');
+    assert(sv.record.rivalMet === 0, `an ordinary stage must not count a rival meeting (got ${sv.record.rivalMet})`);
+    clearTimers();
+
+    // -- the rival stage spawns the named rival, of the fixed species, and counts the meeting --
+    const rivalStage = H.RIVAL_STAGE_MOD;
+    sv.stage = rivalStage;
+    H.startBattle(rivalStage);
+    let B = H.B;
+    assert(B.rival === true, `stage ${rivalStage} should be a rival encounter`);
+    assert(B.e.key === H.RIVAL.key, `the rival should always be the same species (expected ${H.RIVAL.key}, got ${B.e.key})`);
+    assert(B.e.name === H.RIVAL.name, `the rival dragon should carry its own name (expected "${H.RIVAL.name}", got "${B.e.name}")`);
+    assert(B.e.level > rivalStage, `the rival should be a level above a plain stage enemy (stage ${rivalStage}, rival level ${B.e.level})`);
+    assert(sv.record.rivalMet === 1, `meeting the rival should count once (got ${sv.record.rivalMet})`);
+    assert(typeof H.rivalTaunt() === 'string' && H.rivalTaunt().includes(H.RIVAL.trainer), 'the rival should have a flavor line naming the trainer');
+
+    // -- beating the rival scores the rivalry AND advances the ladder like any other stage --
+    B.turnNo = 3; B.p.hp = B.p.maxhp; B.e.hp = 0;
+    H.checkEnd();
+    assert(sv.record.rivalWins === 1, `beating the rival should record a rival win (got ${sv.record.rivalWins})`);
+    assert(sv.record.rivalLosses === 0, `beating the rival should not record a loss (got ${sv.record.rivalLosses})`);
+    assert(sv.stage === rivalStage + 1, `a rival stage is a normal ladder stage and must advance it (expected ${rivalStage + 1}, got ${sv.stage})`);
+    assert(H.$('vSub').textContent.includes(H.RIVAL.trainer), `the victory line should name the rival (got "${H.$('vSub').textContent}")`);
+    clearTimers();
+
+    // -- losing to the rival scores the other side of the record --
+    sv.stage = rivalStage;
+    H.startBattle(rivalStage);
+    B = H.B;
+    assert(sv.record.rivalMet === 2, `a second encounter should count a second meeting (got ${sv.record.rivalMet})`);
+    B.turnNo = 3; B.e.hp = B.e.maxhp; B.p.hp = 0;
+    H.checkEnd();
+    assert(sv.record.rivalLosses === 1, `losing to the rival should record a rival loss (got ${sv.record.rivalLosses})`);
+    assert(sv.record.rivalWins === 1, `losing must not change the rival win tally (got ${sv.record.rivalWins})`);
+    assert(H.$('dSub').textContent.includes(H.RIVAL.trainer), `the defeat line should name the rival (got "${H.$('dSub').textContent}")`);
+    clearTimers();
+
+    // -- the same rival is fightable again later in the career, at the next region's rival stage --
+    const laterStage = H.nextRivalStage(rivalStage + 1);
+    sv.stage = laterStage;
+    H.startBattle(laterStage);
+    B = H.B;
+    assert(B.rival === true && B.e.name === H.RIVAL.name, `the same rival should return at stage ${laterStage}`);
+    assert(sv.record.rivalMet === 3, `a third encounter should count a third meeting (got ${sv.record.rivalMet})`);
+    B.turnNo = 2; B.p.hp = B.p.maxhp; B.e.hp = 0;
+    H.checkEnd();
+    assert(sv.record.rivalWins === 2, `a second win over the rival should read 2 (got ${sv.record.rivalWins})`);
+    clearTimers();
+
+    // -- the rivalry is visible in the Den and flagged on the ladder --
+    sv.stage = H.nextRivalStage(1);
+    H.refreshDen();
+    const denTxt = H.$('denRival').textContent;
+    assert(denTxt.includes(H.RIVAL.trainer) && denTxt.includes('2') && denTxt.includes('1'),
+      `the Den should show the running rivalry record (got "${denTxt}")`);
+    const window = H.ladderWindow(sv.stage);
+    const rivalNodes = window.filter(n => n.rival);
+    assert(rivalNodes.length >= 1, 'the ladder window should flag at least one rival stage');
+    assert(rivalNodes.every(n => H.isRivalStage(n.n) && !n.alpha), 'ladder rival flags must agree with isRivalStage and never mark an alpha');
+    assert(window.filter(n => H.isRivalStage(n.n) && n.n % 5 !== 0).every(n => n.rival),
+      'every scheduled rival stage in the window should be flagged');
+
+    // -- off-ladder battles (side hunt / trial / spar) are never rival encounters --
+    for (const launch of [() => H.startSideHunt(), () => H.startTrial('noheal'), () => H.startSpar()]) {
+      sv.stage = H.nextRivalStage(1);
+      launch();
+      assert(H.B.rival === false, 'off-ladder battles must never be rival encounters');
+      clearTimers();
+    }
+    const metBeforeDuel = sv.record.rivalMet;
+    H.startDuel('ember', 'frost');
+    assert(H.B.rival === false, 'duel mode must never be a rival encounter');
+    assert(sv.record.rivalMet === metBeforeDuel, 'duel mode must not touch the rivalry record');
+    clearTimers();
+
+    // -- persistence --
+    H.B.modeType = 'campaign';
+    H.persist();
+    const wins = sv.record.rivalWins, losses = sv.record.rivalLosses, met = sv.record.rivalMet;
+    sv.record.rivalWins = -1; sv.record.rivalLosses = -1; sv.record.rivalMet = -1;
+    await H.loadSave();
+    assert(H.save.record.rivalWins === wins && H.save.record.rivalLosses === losses && H.save.record.rivalMet === met,
+      `the rivalry record should survive save then load (expected ${wins}-${losses}/${met}, got ${H.save.record.rivalWins}-${H.save.record.rivalLosses}/${H.save.record.rivalMet})`);
+
+    // -- a legacy record with no rival fields at all still loads and defaults to zero --
+    await H.wipeSave();
+    const legacyRecord = { wins: 3, losses: 1, alphaWins: 0, bestStage: 4, lifeGold: 200, lifeExp: 200, grades: { S: 0, A: 1, B: 2, C: 0 } };
+    store.set('dragonfire-duel-save', JSON.stringify({ v: 1, dragonKey: 'ember', dragonName: null, level: 3, exp: 0, gold: 50, stage: 4,
+      potions: { hp: 1, mp: 1 }, amps: { calm: 0, surge: 0, scope: 0 }, gear: { fang: 0, scale: 0, charm: 0, talon: 0, ward: 0 },
+      sound: false, record: legacyRecord, skillPts: 0, skillUpg: {}, stones: H.blankStones(), achieved: {}, prestige: 0, bestiary: {}, companion: null, bond: 0 }));
+    await H.loadSave();
+    assert(H.save.record.rivalWins === 0 && H.save.record.rivalLosses === 0 && H.save.record.rivalMet === 0,
+      `a legacy record with no rival fields should default them to 0 (got ${JSON.stringify(H.save.record)})`);
+    assert(H.save.record.wins === 3, 'the rest of a legacy record must survive untouched');
+
+    // -- bot-vs-bot turn integrity holds through a full rival battle, and it scores exactly once --
+    clearTimers();
+    sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 5; sv.exp = 0; sv.stage = H.nextRivalStage(1);
+    sv.record.rivalWins = 0; sv.record.rivalLosses = 0; sv.record.rivalMet = 0;
+    H.startBattle(sv.stage);
+    B = H.B;
+    assert(B.rival === true, 'the sim should be running a rival encounter');
+    let lastTurn = 0, prevSide = null, turnsSeen = 0;
+    const problems = [];
+    const BUDGET = 8000;
+    for (let i = 0; i < BUDGET && B.state !== 'over'; i++) {
+      tick(16);
+      if (B.mode === 'battle' && B.state === 'aim' && B.active && !B.active.isAI && !B.active.dead) {
+        const foe = H.other(B.active);
+        const sol = H.aiSolve ? H.aiSolve(B.active, foe, H.SKILLS.shot, false) : { ang: 50, pow: 70 };
+        H.fire(B.active, 'shot', sol.ang, sol.pow);
+      }
+      if (B.turnNo > lastTurn) {
+        if (B.turnNo - lastTurn > 1) problems.push(`turn number jumped by ${B.turnNo - lastTurn} near turn ${B.turnNo} (double-advance?)`);
+        const side = B.active === B.p ? 'P' : 'E';
+        if (prevSide !== null && side === prevSide) problems.push(`${side} acted twice in a row at turn ${B.turnNo} (broken alternation)`);
+        prevSide = side; lastTurn = B.turnNo; turnsSeen++;
+      }
+    }
+    assert(B.state === 'over', `the rival battle did not finish within ${BUDGET} frames (stuck in state "${B.state}")`);
+    assert(turnsSeen >= 4, `expected several turns, only saw ${turnsSeen}`);
+    assert(problems.length === 0, problems.join('; '));
+    assert(sv.record.rivalWins + sv.record.rivalLosses === 1,
+      `one rival battle should move the head-to-head by exactly one (got ${sv.record.rivalWins}-${sv.record.rivalLosses})`);
+    assert(sv.record.rivalMet === 1, `one rival battle should count exactly one meeting (got ${sv.record.rivalMet})`);
     clearTimers();
   });
 
