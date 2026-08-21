@@ -220,7 +220,8 @@ function loadGame() {
       WORLD_REGIONS, REGION_SPAN, regionForStage, regionIndex, isRegionEntry,
       GROWTH_STAGES, growthStageAt,
       BOND_STAGES, bondStageAt, bondMult, feedCost, feedDragon,
-      RIVAL, RIVAL_STAGE_MOD, isRivalStage, nextRivalStage, rivalScore, rivalTaunt, defeat
+      RIVAL, RIVAL_STAGE_MOD, isRivalStage, nextRivalStage, rivalScore, rivalTaunt, defeat,
+      trophyEntries
     };`;
   vm.runInContext(gameSrc + epilogue, sandbox, { filename: 'dragonfire-duel.html' });
   return sandbox.__HARNESS__;
@@ -3743,6 +3744,58 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert(sv.record.rivalWins + sv.record.rivalLosses === 1,
       `one rival battle should move the head-to-head by exactly one (got ${sv.record.rivalWins}-${sv.record.rivalLosses})`);
     assert(sv.record.rivalMet === 1, `one rival battle should count exactly one meeting (got ${sv.record.rivalMet})`);
+    clearTimers();
+  });
+
+  // -- TEST: Den trophies --
+  await test('Den trophies: the trophy shelf renders one icon per achievement, lit exactly for save.achieved, updates live, and never touches resolved stats', async () => {
+    clearTimers();
+    await H.wipeSave();
+    const sv = H.save;
+    sv.dragonKey = 'ember'; sv.level = 1; sv.gold = 0; sv.stage = 1;
+
+    // -- a fresh save renders every achievement as a locked slot --
+    H.refreshDen();
+    let cells = Array.from(H.$('denTrophies').children);
+    assert(cells.length === H.ACHIEVEMENTS.length, `the shelf should render one slot per achievement (expected ${H.ACHIEVEMENTS.length}, got ${cells.length})`);
+    assert(cells.every(c => !c.className.includes('got')), 'no slot should be lit on a fresh save');
+    assert(cells.every(c => c.textContent === '🔒'), 'unearned slots should show the locked icon');
+
+    // -- trophyEntries is a pure function of save.achieved, and the shelf renders it --
+    const entries = H.trophyEntries(sv);
+    assert(entries.length === H.ACHIEVEMENTS.length, `trophyEntries should return one entry per achievement (got ${entries.length})`);
+    assert(entries.every((e, i) => e.got === false && e.icon === '🔒' && e.id === H.ACHIEVEMENTS[i].id), 'every entry should start locked and in ACHIEVEMENTS order');
+
+    // -- earning an achievement lights its slot, in place, and nothing else changes --
+    const statsBefore = { atk: H.statsAt('ember', 1).atk, def: H.statsAt('ember', 1).def };
+    sv.record.wins = 1;
+    const earned = H.checkAchievements();
+    assert(earned.length === 1 && earned[0].id === 'firstWin', 'crossing 1 win should earn firstWin');
+    H.refreshDen();
+    cells = Array.from(H.$('denTrophies').children);
+    const idx = H.ACHIEVEMENTS.findIndex(a => a.id === 'firstWin');
+    assert(cells[idx].className.includes('got'), 'the earned achievement\'s slot should be lit');
+    assert(cells[idx].textContent === H.ACHIEVEMENTS[idx].ic, `the lit slot should show that achievement's own icon (got "${cells[idx].textContent}")`);
+    assert(cells.filter(c => c.className.includes('got')).length === 1, 'exactly one slot should be lit so far');
+    const statsAfter = { atk: H.statsAt('ember', 1).atk, def: H.statsAt('ember', 1).def };
+    assert(statsAfter.atk === statsBefore.atk && statsAfter.def === statsBefore.def, 'trophies are cosmetic and must never change resolved stats');
+
+    // -- earning more achievements lights more slots, live --
+    sv.record.alphaWins = 3; sv.record.grades.S = 1;
+    H.checkAchievements();
+    H.refreshDen();
+    cells = Array.from(H.$('denTrophies').children);
+    const litCount = cells.filter(c => c.className.includes('got')).length;
+    assert(litCount === Object.keys(sv.achieved).length, `lit slots should track save.achieved exactly (${litCount} lit, ${Object.keys(sv.achieved).length} achieved)`);
+    assert(litCount >= 4, `expected at least 4 lit trophies by now (got ${litCount})`);
+
+    // -- survives save then load --
+    await H.persist();
+    sv.achieved = {};
+    await H.loadSave();
+    H.refreshDen();
+    cells = Array.from(H.$('denTrophies').children);
+    assert(cells.filter(c => c.className.includes('got')).length === litCount, 'the trophy shelf should read the same after save then load');
     clearTimers();
   });
 

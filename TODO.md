@@ -282,7 +282,7 @@ personal texture layered on a career that was otherwise all stat sheets and a la
     *different* unrelated test on `main` as well. Worth hardening someday (the sims' bot
     fires plain shots only while the AI heals, which can grind), but it is not a game bug.
 
-- [ ] **Den trophies.** Haypi let you decorate around your dragon with things you'd earned.
+- [x] **Den trophies.** Haypi let you decorate around your dragon with things you'd earned.
   The Den today is purely functional — nothing in it reflects what the player has actually
   accomplished.
   - *Intent:* the Den visibly changes to reflect the player's career — a shelf of earned
@@ -295,6 +295,28 @@ personal texture layered on a career that was otherwise all stat sheets and a la
   - *Done when:* the Den visibly shows a trophy per earned milestone and updates live as
     new ones are earned; add a harness assertion that the trophy case reflects
     `save.achieved` exactly.
+  - *Shipped:* a `.trophyShelf` strip in the Den, directly under the record row — one slot
+    per `ACHIEVEMENTS` entry, always rendered (so the case visibly "fills in" over a
+    career) via a pure `trophyEntries(save)` lookup that maps each achievement to
+    `{icon, got, title}` off `save.achieved` alone. `refreshDen` builds it with
+    `document.createElement`/`appendChild` (matching the existing Achievements/Bestiary
+    panel pattern) rather than an innerHTML string, so each slot is a real, testable DOM
+    node. An earned slot shows the achievement's own icon at full brightness with a gold
+    glow; an unearned slot shows a dimmed, grayscale 🔒 — both carry a tooltip (name +
+    earned, or name + the locked description). No new save field, no purchase flow, and no
+    resolved-stat path touches it. Verified by a new harness test (41/41 green): fresh-save
+    all-locked rendering, `trophyEntries` staying in `ACHIEVEMENTS` order, a freshly-earned
+    achievement lighting exactly its own slot with its own icon, resolved stats
+    (`statsAt`) unchanged before/after, multiple earned achievements tracking
+    `Object.keys(save.achieved).length` exactly, and the shelf reading the same after a
+    save/load round trip. Also spot-checked live in a real headless Chromium (a seeded save
+    with 4/9 achievements pre-earned, loaded via Continue → the Den): the shelf renders as
+    a bordered strip with 4 bright icons and 5 dimmed locks, correct tooltips, no console
+    errors. Uncertain: this reads only `save.achieved` (achievements), not `save.bestiary`/
+    `save.record` directly — the Weigh note listed those as options and achievements already
+    cover most of the same milestones (wins, alphas, grades, NG+, gear), so a
+    bestiary-species trophy row is a natural follow-up rather than something this pass
+    needed to also build.
 
 - [ ] **A quest board.** Haypi Dragon dressed its grind in NPC-flavored errands, not bare
   milestone counters. Achievements today are silent and mechanical; nothing in the Den

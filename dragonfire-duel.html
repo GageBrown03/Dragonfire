@@ -179,6 +179,11 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 .recordRow{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;max-width:min(400px,88vw);
   font-size:11px;color:var(--mist);letter-spacing:.02em}
 .recordRow b{color:var(--bone)}
+.trophyShelf{display:flex;gap:9px;flex-wrap:wrap;justify-content:center;max-width:min(400px,88vw);
+  padding:7px 12px;margin:2px 0;border-top:2px solid rgba(255,255,255,.16);border-bottom:2px solid rgba(0,0,0,.4);
+  background:rgba(255,255,255,.03);border-radius:7px}
+.trophyShelf .tr{font-size:19px;opacity:.28;filter:grayscale(1) brightness(.7);cursor:default}
+.trophyShelf .tr.got{opacity:1;filter:none;text-shadow:0 0 8px rgba(255,210,63,.55)}
 
 .modal{position:absolute;inset:0;z-index:35;background:rgba(4,7,14,.72);display:flex;align-items:center;justify-content:center;padding:16px}
 .box{background:linear-gradient(180deg,#18223c,#0d1426);border:2px solid var(--line-hi);border-radius:18px;padding:22px 24px;
@@ -345,6 +350,7 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
     <div id="denLadder" class="ladder"></div>
     <div id="denGold" style="font-size:13.5px;color:var(--gold)"></div>
     <div id="denRecord" class="recordRow"></div>
+    <div id="denTrophies" class="trophyShelf"></div>
     <div id="denGear" class="recordRow"></div>
     <div id="denStones" class="recordRow"></div>
     <div id="denCompanion" style="font-size:12.5px;color:var(--mist)"></div>
@@ -2036,6 +2042,15 @@ function achRewardText(rw){
   const parts=[]; if(rw.gold)parts.push('+'+rw.gold+' Gold'); if(rw.skillPts)parts.push('+'+rw.skillPts+' skill point'+(rw.skillPts>1?'s':''));
   return parts.join(' ');
 }
+// The Den's trophy shelf: one slot per ACHIEVEMENTS entry, lit up once save.achieved[id] is
+// true and shown as a locked silhouette otherwise. Purely derived from save.achieved — no
+// new state, no stat effect.
+function trophyEntries(s){
+  return ACHIEVEMENTS.map(a=>{
+    const got=!!s.achieved[a.id];
+    return {id:a.id,icon:got?a.ic:'🔒',got,title:a.name+(got?' — earned':' — locked: '+a.desc)};
+  });
+}
 function checkAchievements(){
   const earned=[];
   for(const a of ACHIEVEMENTS){
@@ -2660,6 +2675,11 @@ function refreshDen(){
     '<span title="Achievements earned">🏆 <b>'+ACHIEVEMENTS.filter(a=>save.achieved[a.id]).length+'</b>/'+ACHIEVEMENTS.length+'</span>'+
     '<span title="Bestiary: species defeated in campaign">🐉 <b>'+bestiaryDefeatedCount()+'</b>/'+Object.keys(DRAGONS).length+'</span>'+
     (save.prestige?'<span title="New Game+ resets — each stacks +'+Math.round(PRESTIGE_STAT_PCT*100)+'% ATK/DEF/AGI/LUK and +'+PRESTIGE_GOLD_BONUS+' starting gold">♻ <b>'+save.prestige+'</b> NG+</span>':'');
+  const trWrap=$('denTrophies'); trWrap.innerHTML='';
+  for(const t of trophyEntries(save)){
+    const span=document.createElement('span'); span.className='tr'+(t.got?' got':''); span.title=t.title; span.textContent=t.icon;
+    trWrap.appendChild(span);
+  }
   const canNG=canPrestige();
   $('btnDenPrestige').disabled=!canNG;
   $('btnDenPrestige').title=canNG?
